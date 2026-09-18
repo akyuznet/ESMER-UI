@@ -153,4 +153,7 @@ appears on the home screen.
 
 ## Licence
 
-Not yet chosen — all rights reserved for now.
+[MIT](LICENSE). Do what you like with it; no warranty.
+
+It talks to a car. Read the vehicle notes above before trusting a reading, and
+test changes with the vehicle parked.
