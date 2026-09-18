@@ -1,0 +1,251 @@
+﻿<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!--
+      targetSdk >= 30 filters package visibility, so a launcher must declare the
+      MAIN/LAUNCHER query to see the apps it is supposed to list.
+    -->
+    <!--
+      Car control talks to OverDrive's REST API on 127.0.0.1:8080. Android requires
+      INTERNET even for loopback sockets.
+    -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <!-- Wi-Fi signal strength for the bar's readout; the RSSI needs no location. -->
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- Bluetooth adapter and profile state for the bar's readout. Normal on this
+         platform; from API 31 the equivalent is BLUETOOTH_CONNECT. -->
+    <uses-permission
+        android:name="android.permission.BLUETOOTH"
+        android:maxSdkVersion="30" />
+
+    <!-- Overlay window for the custom navigation bar. -->
+    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!--
+      Needed only to hide the head unit's own navigation bar. Not grantable from
+      the UI; grant once over adb:
+        adb shell pm grant com.example.esmerui android.permission.WRITE_SECURE_SETTINGS
+    -->
+    <uses-permission
+        android:name="android.permission.WRITE_SECURE_SETTINGS"
+        tools:ignore="ProtectedPermissions" />
+
+    <!--
+      BYD's automotive SDK - the same 130 permissions OverDrive requests.
+      Only the *_COMMON ones are "dangerous" and auto-granted; the _GET/_SET pairs
+      are signature-level and stay denied unless the app is platform-signed. They
+      are declared anyway because `pm grant` refuses a permission the manifest
+      never asked for, so requesting them is a precondition for even trying.
+    -->
+    <uses-permission android:name="android.permission.BYDAUTO_AC_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_AC_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_AC_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ADAS_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ADAS_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_AUDIO_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_AUDIO_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_AUDIO_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_AUX_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_AUX_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BIGDATA_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BLUETOOTH_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BLUETOOTH_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BMS_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BMS_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_BODYWORK_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_CHARGING_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_CHARGING_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_CHARGING_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_COLLISION_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_COLLISION_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_CPUTEMPRATURE_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_DOOR_LOCK_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_DOOR_LOCK_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_DOOR_LOCK_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_DTC_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_DTC_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ENERGY_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ENERGY_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ENERGY_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ENGINE_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ENGINE_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_ENGINE_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_FUNCNOTICE_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_FUNCNOTICE_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_GB_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_GEARBOX_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_GEARBOX_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_INSTRUMENT_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_INSTRUMENT_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_INSTRUMENT_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_LIGHT_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_LIGHT_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_LIGHT_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_LOCATION_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_LOCATION_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MOTOR_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MOTOR_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MOTOR_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MQTT_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MQTT_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MULTIMEDIA_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MULTIMEDIA_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_MULTIMEDIA_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_OTA_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_OTA_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_OTA_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PANORAMA_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PANORAMA_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PANORAMA_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PHONE_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PHONE_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PM2P5_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PM2P5_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_PM2P5_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_POWER_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_POWER_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_POWER_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_QCFS_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_QCFS_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RADAR_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RADAR_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RADAR_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RADIO_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RADIO_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_REAR_VIEW_MIRROR_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_REAR_VIEW_MIRROR_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_REAR_VIEW_MIRROR_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_REMINDER_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_REMINDER_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RESCUE_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RESCUE_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RSE_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_RSE_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SAFETY_BELT_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SAFETY_BELT_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SAFETY_BELT_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SEAT_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SEAT_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SEAT_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SECURITY_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SENSOR_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SENSOR_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SENSOR_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SETTING_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SETTING_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SETTING_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SIGNAL_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SPECIAL_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SPECIAL_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SPEED_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SPEED_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SPEED_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SRS_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SRS_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_SRS_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_STATISTIC_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_STATISTIC_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_STATISTIC_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TEST_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TEST_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TIME_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TIME_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TIME_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TYRE_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TYRE_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_TYRE_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VEHICLE_DATA_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VEHICLE_DATA_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VEHICLEHEALTH_COMMON" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VEHICLEHEALTH_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VERSION_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VERSION_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VIDEO_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_VIDEO_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_WIPER_GET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_WIPER_SET" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.BYDAUTO_YUN_GET" tools:ignore="ProtectedPermissions" />
+
+
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!--
+          Also match MAIN activities with no LAUNCHER category: BYD ships its
+          climate panel, radio and camera screens that way, so they are invisible
+          to every launcher unless queried explicitly.
+        -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+        </intent>
+    </queries>
+
+    <application
+        android:allowBackup="true"
+        android:dataExtractionRules="@xml/data_extraction_rules"
+        android:fullBackupContent="@xml/backup_rules"
+        android:icon="@mipmap/ic_launcher"
+        android:label="@string/app_name"
+        android:roundIcon="@mipmap/ic_launcher_round"
+        android:supportsRtl="true"
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:theme="@style/Theme.ESMERUI">
+
+        <activity
+            android:name=".MainActivity"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:theme="@style/Theme.ESMERUI"
+            android:launchMode="singleTask"
+            android:clearTaskOnLaunch="true"
+            android:excludeFromRecents="true"
+            android:stateNotNeeded="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode"
+            android:windowSoftInputMode="adjustResize">
+
+            <!-- Home role: this is what makes it the launcher. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.HOME" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+
+            <!--
+              Also listed as a normal app so it can be opened during development
+              without first being set as the default home app.
+            -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+
+        <service
+            android:name=".navbar.NavBarService"
+            android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Persistent launcher navigation bar overlay" />
+        </service>
+
+        <service
+            android:name=".navbar.NavAccessibilityService"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/nav_accessibility" />
+        </service>
+    </application>
+
+</manifest>

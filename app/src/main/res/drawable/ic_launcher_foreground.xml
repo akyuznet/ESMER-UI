@@ -1,0 +1,43 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ESMERUI in one mark: the head unit's wide screen, with the launcher's own bar
+  across the bottom and its readout strip along the top - the two things this app
+  puts on the display that nothing else does.
+
+  Everything sits inside the centre 54 of the 108 viewport, so a circular or
+  squircle mask cannot clip it. The proportions follow the real panel, which is
+  1920 x 1080.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- The screen. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#E8EAED"
+        android:strokeWidth="4.5"
+        android:strokeLineJoin="round"
+        android:pathData="M33.5,37 L74.5,37 A6,6 0 0 1 80.5,43 L80.5,65 A6,6 0 0 1 74.5,71 L33.5,71 A6,6 0 0 1 27.5,65 L27.5,43 A6,6 0 0 1 33.5,37 Z" />
+
+    <!--
+      The readout strip: clock, gear, speed - short, and top-left where it sits.
+      Held back from full white so it reads as secondary to the bar, but not so
+      far back that it vanishes at 48px.
+    -->
+    <path
+        android:fillColor="#B8E8EAED"
+        android:pathData="M33.5,43.6 L54,43.6 A1.7,1.7 0 0 1 54,47 L33.5,47 A1.7,1.7 0 0 1 33.5,43.6 Z" />
+
+    <!-- The navigation bar, in the app's accent. -->
+    <path
+        android:fillColor="#4FC3F7"
+        android:pathData="M34.4,60.8 L73.6,60.8 A3.1,3.1 0 0 1 73.6,67 L34.4,67 A3.1,3.1 0 0 1 34.4,60.8 Z" />
+
+    <!-- Its buttons, knocked out of the bar. -->
+    <path android:fillColor="#0D1217" android:pathData="M45,63.9 m-1.75,0 a1.75,1.75 0 1,0 3.5,0 a1.75,1.75 0 1,0 -3.5,0" />
+    <path android:fillColor="#0D1217" android:pathData="M54,63.9 m-1.75,0 a1.75,1.75 0 1,0 3.5,0 a1.75,1.75 0 1,0 -3.5,0" />
+    <path android:fillColor="#0D1217" android:pathData="M63,63.9 m-1.75,0 a1.75,1.75 0 1,0 3.5,0 a1.75,1.75 0 1,0 -3.5,0" />
+</vector>

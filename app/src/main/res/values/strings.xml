@@ -1,0 +1,9 @@
+<resources>
+    <!--
+      The separator is written as a numeric entity rather than a literal middle dot.
+      This project's tooling has corrupted non-ASCII in source files before, and an
+      entity survives any editor or shell that mangles UTF-8.
+    -->
+    <string name="app_name">ESMER&#183;UI</string>
+    <string name="nav_accessibility_description">Lets the ESMER navigation bar perform Back and Recents. No screen content is read.</string>
+</resources>

@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Pressed feedback for bar buttons.
+
+  The platform's borderless ripple is almost invisible against the bar's near-black
+  background, so this draws an explicit tinted rounded square instead. A ripple
+  wraps it so the touch still animates outward on release rather than snapping.
+-->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="#4D4FC3F7">
+    <item android:id="@android:id/mask">
+        <shape android:shape="rectangle">
+            <corners android:radius="14dp" />
+            <solid android:color="#FFFFFFFF" />
+        </shape>
+    </item>
+    <item>
+        <selector>
+            <item android:state_pressed="true">
+                <shape android:shape="rectangle">
+                    <corners android:radius="14dp" />
+                    <solid android:color="#594FC3F7" />
+                </shape>
+            </item>
+            <item>
+                <shape android:shape="rectangle">
+                    <solid android:color="@android:color/transparent" />
+                </shape>
+            </item>
+        </selector>
+    </item>
+</ripple>

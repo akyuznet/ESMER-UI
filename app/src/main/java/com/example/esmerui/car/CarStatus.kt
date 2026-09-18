@@ -1,0 +1,344 @@
+package com.example.esmerui.car
+
+import android.os.SystemClock
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+
+/**
+ * Cached vehicle state for the bar's live readouts.
+ *
+ * The stepper groups show the car's actual setpoint and fan level, so something
+ * has to poll - the API pushes nothing. Values are plain @Volatile fields because
+ * the bar reads them from views, not from Compose; [available] is Compose state
+ * because the settings screen does observe it.
+ */
+object CarStatus {
+
+    var available by mutableStateOf(false)
+        private set
+
+    @Volatile
+    var setpointC: Int? = null
+
+    @Volatile
+    var fanLevel: Int? = null
+
+    /**
+     * Climate power: whether the system is running at all.
+     *
+     * Distinct from [compressorOn] - the blower can be pushing cabin air with the
+     * compressor idle. This is the one that says whether any air is moving, so it
+     * drives the readouts and the vent buttons.
+     */
+    @Volatile
+    var climateOn: Boolean = false
+
+    /** The compressor itself - cooling on or off, which is what the A/C button means. */
+    @Volatile
+    var compressorOn: Boolean = false
+
+    /**
+     * Recirculation, defrost and steering heat are not reported by /state, so these
+     * mirror the last command we sent rather than the car. Good enough to colour a
+     * button; a stale flag costs one wasted press.
+     */
+    @Volatile
+    var recirculateOn: Boolean = false
+
+    @Volatile
+    var defrostOn: Boolean = false
+
+    @Volatile
+    var defrostRearOn: Boolean = false
+
+    /** Read straight from the car's feature bus, not from the REST snapshot. */
+    @Volatile
+    var airflow: Airflow? = null
+
+    @Volatile
+    var steeringHeatOn: Boolean = false
+
+    @Volatile
+    var seatHeatLevel: Int = 0
+
+    @Volatile
+    var seatVentLevel: Int = 0
+
+    @Volatile
+    var seatHeatLevelPassenger: Int = 0
+
+    @Volatile
+    var seatVentLevelPassenger: Int = 0
+
+    /**
+     * Safety net for a pending write that the car never confirms - a refused command
+     * or a value the car silently clamped. Past this the server's word wins.
+     */
+    private const val PENDING_TIMEOUT_MS = 8_000L
+
+    /**
+     * Values we have commanded but the car has not yet echoed back.
+     *
+     * A plain time window was not good enough: OverDrive's own snapshot lags the car
+     * by a second or two, so a fixed grace either expired too early - flicking the
+     * display back to the old value - or lingered long enough to hide a change made
+     * somewhere else. Holding the value until the car *agrees* fixes both: our own
+     * presses never flicker, and anything changed elsewhere still lands on the very
+     * next poll, because nothing is pending.
+     */
+    @Volatile
+    private var pendingClimate: Boolean? = null
+
+    @Volatile
+    private var pendingCompressor: Boolean? = null
+
+    @Volatile
+    private var pendingSetpoint: Int? = null
+
+    @Volatile
+    private var pendingFan: Int? = null
+
+    @Volatile
+    private var pendingUntil = 0L
+
+    /**
+     * Reads the whole cabin. Blocking - callers must be off the main thread.
+     *
+     * The feature bus answers everything, so a working bus means no HTTP at all and
+     * OverDrive need not be installed. The REST snapshot is read only as a fallback
+     * for a car whose bus we cannot reach.
+     */
+    fun refresh(): Boolean {
+        val expired = SystemClock.elapsedRealtime() >= pendingUntil
+        if (CarBus.isAvailable) {
+            readFromBus(expired)
+            available = true
+            return true
+        }
+
+        val state = OverdriveApi.state()
+        available = state != null
+        state?.optJSONObject("climate")?.let { climate ->
+            applyClimate(
+                power = climate.optBoolean("acOn", false),
+                setpoint = climate.optInt("setpointDriver", -1).takeIf { it >= 0 },
+                fan = climate.optInt("fanLevel", -1).takeIf { it >= 0 },
+                expired = expired,
+            )
+        }
+        // Both arrays are [driver, passenger].
+        state?.optJSONObject("seats")?.let { seats ->
+            val heat = seats.optJSONArray("heat")
+            val cool = seats.optJSONArray("cool")
+            seatHeatLevel = heat?.optInt(0, 0) ?: 0
+            seatHeatLevelPassenger = heat?.optInt(1, 0) ?: 0
+            seatVentLevel = cool?.optInt(0, 0) ?: 0
+            seatVentLevelPassenger = cool?.optInt(1, 0) ?: 0
+        }
+        return available
+    }
+
+    /** One line per connection, so an unexpected reading can be traced to its signal. */
+    @Volatile
+    private var described = false
+
+    /**
+     * Where the sweep in progress is writing, or null when none is.
+     *
+     * Runs on the poll's own thread, since the sweep is a few thousand round trips
+     * and has no business on the main one.
+     */
+    @Volatile
+    private var scanRequest: java.io.File? = null
+
+    @Volatile
+    private var scanQueue: MutableList<String>? = null
+
+    /**
+     * Asks the next polls to sweep every signal into [file], one domain per poll.
+     *
+     * On demand only - it used to run at every service start, which cost about fifty
+     * seconds and nearly three thousand binder calls per boot for a catalogue that
+     * changes only when the car does. The queue is set before the file so a poll
+     * that lands in between sees no file and simply waits for the next one.
+     */
+    fun requestSweep(file: java.io.File) {
+        runCatching { file.writeText("") }
+        scanQueue = BydFeatures.groups().toMutableList()
+        scanRequest = file
+    }
+
+    /**
+     * Sweeps one group per poll rather than all of them at once.
+     *
+     * A single pass over every signal wedged on a binder call that never came back -
+     * the car answers most ids and silently swallows a few. One group at a time keeps
+     * a bad id from taking the whole sweep with it, appends as it goes so a hang still
+     * leaves everything found so far, and names the group in the log before reading it
+     * so the culprit is obvious.
+     */
+    private fun sweepOneGroup() {
+        val queue = scanQueue ?: return
+        val file = scanRequest ?: return
+        if (queue.isEmpty()) {
+            scanQueue = null
+            scanRequest = null
+            android.util.Log.i("CarBus", "sweep complete: $file")
+            return
+        }
+
+        val group = queue.removeAt(0)
+        android.util.Log.i("CarBus", "sweeping $group (${queue.size} left)")
+        runCatching { file.appendText(CarBus.scanGroup(group)) }
+    }
+
+    private fun readFromBus(expired: Boolean) {
+        if (!described) {
+            described = true
+            android.util.Log.i("CarBus", CarBus.describe())
+            android.util.Log.i("CarBus", CarBus.describeInfo())
+        }
+        sweepOneGroup()
+        airflow = Airflow.current()
+
+        val busCompressor = Compressor.isOn()
+        if (settle(pendingCompressor, busCompressor, expired)) {
+            pendingCompressor = null
+            if (busCompressor != null) compressorOn = busCompressor
+        }
+
+        applyClimate(
+            power = CarBus.climateOn(),
+            setpoint = CarBus.setpoint(),
+            fan = CarBus.fanLevel(),
+            expired = expired,
+        )
+
+        // Unlike the REST snapshot these are the car's own flags, not our record of
+        // the last command, so a change made on the BYD panel shows up here too.
+        CarBus.recirculating()?.let { recirculateOn = it }
+        CarBus.defrostRear()?.let { defrostRearOn = it }
+        CarBus.steeringHeat()?.let { steeringHeatOn = it }
+        // Front defrost is reconciled inside applyClimate, which knows whether the
+        // system just went down and took it with it.
+
+        CarBus.seatLevel(driver = true, heating = true)?.let { seatHeatLevel = it }
+        CarBus.seatLevel(driver = true, heating = false)?.let { seatVentLevel = it }
+        CarBus.seatLevel(driver = false, heating = true)?.let { seatHeatLevelPassenger = it }
+        CarBus.seatLevel(driver = false, heating = false)?.let { seatVentLevelPassenger = it }
+    }
+
+    /** Shared by both transports, so they cannot drift on the reconciliation rules. */
+    private fun applyClimate(power: Boolean?, setpoint: Int?, fan: Int?, expired: Boolean) {
+        if (power != null && settle(pendingClimate, power, expired)) {
+            pendingClimate = null
+            // Front defrost dies with the blower and the car does not restore it, so
+            // drop our flag as the system goes down - whether that was us or the car's
+            // own panel. Above that, take the car's word when it has one.
+            if (climateOn && !power) defrostOn = false else CarBus.defrostFront()?.let { defrostOn = it }
+            climateOn = power
+        }
+
+        if (settle(pendingSetpoint, setpoint, expired)) {
+            pendingSetpoint = null
+            setpointC = setpoint
+        }
+
+        if (settle(pendingFan, fan, expired)) {
+            pendingFan = null
+            fanLevel = fan
+        }
+    }
+
+    /** Readout text for a stepper group; "--" until the first poll lands. */
+    fun temperatureLabel(): String = setpointC?.let { "$it°" } ?: "--"
+
+    fun fanLabel(): String = fanLevel?.toString() ?: "--"
+
+    /**
+     * Applies a step to the cached value and returns the new target, without
+     * touching the network.
+     *
+     * The press handler uses this to move the readout immediately: a round trip to
+     * the car is tens of milliseconds at best, and the car often still reports the
+     * old setpoint straight after a write, so waiting for confirmation made the
+     * display lag every press. The command still reconciles against the car
+     * afterwards, so a refused or clamped value corrects itself.
+     */
+    /**
+     * True when the server's value should be taken. Keeps the optimistic value only
+     * while a write is still outstanding and the car has not caught up yet.
+     */
+    private fun <T> settle(pending: T?, server: T?, expired: Boolean): Boolean =
+        pending == null || pending == server || expired
+
+    fun previewTemperature(delta: Int, range: IntRange): Int? {
+        val next = (setpointC ?: return null).plus(delta).coerceIn(range)
+        setpointC = next
+        pendingSetpoint = next
+        holdPending()
+        return next
+    }
+
+    fun previewFan(delta: Int, range: IntRange): Int? {
+        val next = (fanLevel ?: return null).plus(delta).coerceIn(range)
+        fanLevel = next
+        pendingFan = next
+        holdPending()
+        return next
+    }
+
+    /**
+     * Flips the cached compressor state and returns the new value, without waiting
+     * for the car. The blower is untouched either way, so the readouts stay as they
+     * are - only the A/C button changes colour.
+     */
+    fun previewCompressor(on: Boolean): Boolean {
+        compressorOn = on
+        pendingCompressor = on
+        holdPending()
+        return on
+    }
+
+    /**
+     * Marks the climate system as coming up, for the one case that starts it: asking
+     * for A/C on a system that was off. The fan level is left alone because the car
+     * picks it, and we cannot guess what it will choose.
+     */
+    fun previewClimateStart() {
+        climateOn = true
+        pendingClimate = true
+        holdPending()
+    }
+
+    /**
+     * Marks the whole system as going down, which takes the blower and the front
+     * defrost with it.
+     *
+     * The compressor flag is left to the car: it may well go on reporting the last
+     * setting with the system off, and pending a guess against it would only flicker
+     * once the hold expired. Nothing shows it while the system is down anyway.
+     */
+    fun previewClimateStop() {
+        climateOn = false
+        pendingClimate = false
+        fanLevel = 0
+        pendingFan = 0
+        defrostOn = false
+        holdPending()
+    }
+
+    private fun holdPending() {
+        pendingUntil = SystemClock.elapsedRealtime() + PENDING_TIMEOUT_MS
+    }
+
+    /** Abandons every pending write so the next poll re-syncs from the car. */
+    fun releaseOptimistic() {
+        pendingClimate = null
+        pendingCompressor = null
+        pendingSetpoint = null
+        pendingFan = null
+        pendingUntil = 0L
+    }
+}

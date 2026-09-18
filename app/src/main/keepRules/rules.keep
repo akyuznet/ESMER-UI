@@ -1,0 +1,10 @@
+# R8 rules. AGP combines every .keep file in src/main/keepRules and passes them to R8.
+#
+# Tree-shaking only. The debug APK carried 29 MB of dex - all of Compose and
+# Material, unshrunk - of which the launcher uses a fraction; R8 keeps what is
+# reachable and drops the rest. Names stay as written, so a stack trace from the
+# head unit reads without a mapping file, and line numbers survive for the same
+# reason. The reflection in this app targets the ROM's own classes, not ours, so
+# nothing here needs keeping by hand.
+-dontobfuscate
+-keepattributes SourceFile,LineNumberTable

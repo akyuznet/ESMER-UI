@@ -1,0 +1,22 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!--
+      A speedometer: the dial's upper arc with a needle swung to the right of centre.
+      Only used by the settings picker - on the bar the number carries itself.
+    -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="76"
+        android:strokeLineCap="round"
+        android:pathData="M158,700 A 340,340 0 1 1 802,700" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="76"
+        android:strokeLineCap="round"
+        android:pathData="M480,660 L640,420" />
+</vector>

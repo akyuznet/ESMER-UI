@@ -1,0 +1,17 @@
+﻿<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="960"
+    android:viewportHeight="960">
+    <!-- A wheel head-on: tyre outside, rim inside. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="86"
+        android:pathData="M137,480 A343,343 0 1,1 823,480 A343,343 0 1,1 137,480 Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="64"
+        android:pathData="M332,480 A148,148 0 1,1 628,480 A148,148 0 1,1 332,480 Z" />
+</vector>

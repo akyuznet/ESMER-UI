@@ -1,0 +1,66 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="18.5dp"
+    android:viewportWidth="228"
+    android:viewportHeight="176">
+    <!--
+      Drawn at 80% about the centre of the viewport rather than by shrinking the
+      drawable itself: the cell keeps its size, so this stays aligned with the bar's
+      other glyphs and only the artwork gets smaller.
+    -->
+    <group
+        android:pivotX="114"
+        android:pivotY="88"
+        android:scaleX="0.8"
+        android:scaleY="0.8">
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="@android:color/white"
+            android:strokeWidth="13"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M47,17 L181,17 A26,26 0 0 1 207,43 L207,108 A26,26 0 0 1 181,134 L47,134 A26,26 0 0 1 21,108 L21,43 A26,26 0 0 1 47,17 Z" />
+        <group
+            android:translateX="84"
+            android:translateY="56">
+            <path
+                android:fillColor="@android:color/white"
+                android:pathData="M-15,30 L0,0 L15,30 Z" />
+            <path
+                android:fillColor="@android:color/transparent"
+                android:strokeColor="@android:color/white"
+                android:strokeWidth="13"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round"
+                android:pathData="M0,26 C0,46 12,54 12,74 C12,90 3,96 5,110" />
+        </group>
+        <group
+            android:translateX="117"
+            android:translateY="56">
+            <path
+                android:fillColor="@android:color/white"
+                android:pathData="M-15,30 L0,0 L15,30 Z" />
+            <path
+                android:fillColor="@android:color/transparent"
+                android:strokeColor="@android:color/white"
+                android:strokeWidth="13"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round"
+                android:pathData="M0,26 C0,46 12,54 12,74 C12,90 3,96 5,110" />
+        </group>
+        <group
+            android:translateX="150"
+            android:translateY="56">
+            <path
+                android:fillColor="@android:color/white"
+                android:pathData="M-15,30 L0,0 L15,30 Z" />
+            <path
+                android:fillColor="@android:color/transparent"
+                android:strokeColor="@android:color/white"
+                android:strokeWidth="13"
+                android:strokeLineCap="round"
+                android:strokeLineJoin="round"
+                android:pathData="M0,26 C0,46 12,54 12,74 C12,90 3,96 5,110" />
+        </group>
+    </group>
+</vector>
