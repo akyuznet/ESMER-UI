@@ -1,6 +1,17 @@
+// Imported rather than fully qualified: inside a Gradle Kotlin DSL script `java`
+// resolves to the Java plugin extension, which shadows the package of the same name.
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.compose)
+}
+
+// Release signing, read from a properties file that is deliberately not committed.
+// Anyone cloning this repo builds unsigned release APKs and signs with their own
+// key; only this machine holds the one the published releases are signed with.
+val signingProps = rootProject.file("keystore.properties").let { file ->
+    if (file.exists()) Properties().apply { file.inputStream().use { load(it) } } else null
 }
 
 android {
@@ -19,6 +30,17 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    signingConfigs {
+        if (signingProps != null) {
+            create("release") {
+                storeFile = rootProject.file(signingProps.getProperty("storeFile"))
+                storePassword = signingProps.getProperty("storePassword")
+                keyAlias = signingProps.getProperty("keyAlias")
+                keyPassword = signingProps.getProperty("keyPassword")
+            }
+        }
+    }
+
     buildTypes {
         // The debug build is the one that runs on the car, so it is the one that is
         // shrunk: R8 strips the unused nine tenths of Compose and Material out of
@@ -34,6 +56,8 @@ android {
             optimization {
                 enable = true
             }
+            // Falls back to unsigned when the key is absent, so a clone still builds.
+            signingProps?.let { signingConfig = signingConfigs.getByName("release") }
         }
     }
     compileOptions {

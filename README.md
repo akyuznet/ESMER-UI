@@ -10,6 +10,12 @@ readouts pulled straight off the car's own bus.
 Built and tested on a 1920×1080 @ 240dpi DiLink 3.0 unit running Android 10
 (SDK 29).
 
+![The home screen](docs/screenshots/home.png)
+
+*The top and bottom bars, the left and right rails, and the grid between them are
+all ESMER·UI. Readouts across the top are live from the car — gear, speed, tyre
+pressures, ranges, cabin air.*
+
 ---
 
 ## What it does
@@ -20,9 +26,23 @@ Built and tested on a 1920×1080 @ 240dpi DiLink 3.0 unit running Android 10
 - Drag to move, drag past an edge to cross pages
 - Android widgets, hosted and resizable by the cell
 - Add and remove pages
-- An app drawer listing everything on the unit, including the ~85 `MAIN` activities
-  with no `LAUNCHER` category that no launcher normally shows (BYD's climate panel,
-  radio, camera and diagnostic screens)
+- An app drawer listing everything on the unit, including the `MAIN` activities with
+  no `LAUNCHER` category that no launcher normally shows (BYD's climate panel, radio,
+  camera and diagnostic screens — 75 of them on this car)
+
+Long press to arrange. Drag anything anywhere; `X` removes; `App`, `Widget` and
+`Page +` add.
+
+![Arranging the home screen](docs/screenshots/arrange.png)
+
+Widgets are hosted through `AppWidgetHost`, listed with the span each provider asks
+for, and resizable by the cell once placed.
+
+![The widget picker](docs/screenshots/widgets.png)
+
+The drawer lists the lot — tap to launch, or switch to `Edit home` and tap to add.
+
+![The app drawer](docs/screenshots/drawer.png)
 
 **Edge bars**
 
