@@ -6,4 +6,7 @@
     -->
     <string name="app_name">ESMER&#183;UI</string>
     <string name="nav_accessibility_description">Lets the ESMER navigation bar perform Back and Recents. No screen content is read.</string>
+    <!-- Takes the app name rather than repeating it, so a rename cannot leave the
+         toast telling the user to look for something that is no longer called that. -->
+    <string name="accessibility_needed">Enable %1$s under Accessibility for Back and Recents</string>
 </resources>

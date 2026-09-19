@@ -74,6 +74,7 @@ import com.example.esmerui.launcher.HomeRoleController
 import com.example.esmerui.launcher.LauncherSettings
 import com.example.esmerui.launcher.LauncherWidgets
 import com.example.esmerui.launcher.findByKey
+import com.example.esmerui.navbar.NavBarService
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -143,6 +144,7 @@ fun HomeScreen(
 
     var editing by remember { mutableStateOf(false) }
     var showWidgetPicker by remember { mutableStateOf(false) }
+    var showActionPicker by remember { mutableStateOf(false) }
 
     fun commit(next: List<HomeCell>) = settings.setHomeCells(next)
 
@@ -150,6 +152,7 @@ fun HomeScreen(
         if (editing) {
             ArrangeBar(
                 onAddApp = { onOpenAllApps(true) },
+                onAddInfo = { showActionPicker = true },
                 onAddWidget = { showWidgetPicker = true },
                 onAddPage = { settings.homePages = pages + 1 },
                 canRemovePage = pages > 1,
@@ -188,6 +191,25 @@ fun HomeScreen(
         }
     }
 
+    if (showActionPicker) {
+        ActionPickerDialog(
+            onDismiss = { showActionPicker = false },
+            onPick = { action ->
+                // A stepper renders as [-] value [+], so it needs the width up front.
+                val w = if (action.isGroup) 2 else 1
+                var spot = HomeLayout.firstFree(cells, columns, rows, pages, w, 1)
+                if (spot == null) {
+                    settings.homePages = pages + 1
+                    spot = Triple(pages, 0, 0)
+                }
+                commit(cells + HomeCell(spot.first, spot.second, spot.third, w, 1, HomeItem.Action(action)))
+                // The poller only reads what something is showing, and this is now
+                // something showing it.
+                NavBarService.sync(context)
+            },
+        )
+    }
+
     if (showWidgetPicker) {
         WidgetPickerDialog(
             widgets = widgets,
@@ -212,6 +234,7 @@ fun HomeScreen(
 @Composable
 private fun ArrangeBar(
     onAddApp: () -> Unit,
+    onAddInfo: () -> Unit,
     onAddWidget: () -> Unit,
     onAddPage: () -> Unit,
     canRemovePage: Boolean,
@@ -236,6 +259,7 @@ private fun ArrangeBar(
             maxLines = 2,
         )
         BarAction("App", onAddApp)
+        BarAction("Info", onAddInfo)
         BarAction("Widget", onAddWidget)
         BarAction("Page +", onAddPage)
         if (canRemovePage) BarAction("Page −", onRemovePage)
@@ -325,6 +349,7 @@ private fun HomePager(
 ) {
     val pagerState = rememberPagerState(pageCount = { pages })
     val scope = rememberCoroutineScope()
+    val appContext = LocalContext.current
 
     LaunchedEffect(pages) {
         if (pagerState.currentPage >= pages) pagerState.scrollToPage(pages - 1)
@@ -469,6 +494,11 @@ private fun HomePager(
                             selectedKey = if (selectedKey == cell.item.key) null else cell.item.key
                         editing -> { selectedKey = null; app?.let(onAppInfo) }
                         cell.item is HomeItem.Settings -> onOpenSettings()
+                        // A readout has nothing to press; a control does its thing.
+                        cell.item is HomeItem.Action ->
+                            if (!cell.item.action.isReadout && !cell.item.action.isGroup) {
+                                NavBarService.perform(appContext, cell.item.action)
+                            }
                         else -> app?.let(onLaunch)
                     }
                 },
@@ -656,6 +686,8 @@ private fun HomeCellView(
         Modifier.combinedClickable(onClick = onTap, onLongClick = onLongPress)
     }
 
+    val cellContext = LocalContext.current
+
     Box(Modifier.fillMaxSize().padding(4.dp)) {
         when (val item = cell.item) {
             is HomeItem.Widget -> {
@@ -663,6 +695,21 @@ private fun HomeCellView(
                 // A widget's own views would eat the gesture, so while arranging a
                 // transparent sheet over it takes the touches instead.
                 if (editing) Box(Modifier.fillMaxSize().then(gestures))
+            }
+
+            is HomeItem.Action -> Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(MaterialTheme.shapes.large)
+                    .then(gestures)
+            ) {
+                ActionCell(
+                    action = item.action,
+                    iconSize = iconSize,
+                    // Readouts ignore this; a control routes its press to the bar
+                    // service, where the climate and accessibility logic already is.
+                    onPress = { NavBarService.perform(cellContext, it) },
+                )
             }
 
             else -> Column(

@@ -33,6 +33,14 @@ class NavAccessibilityService : AccessibilityService() {
         @Volatile
         private var instance: NavAccessibilityService? = null
 
+        /**
+         * Whether the platform has actually connected us, which is not the same as
+         * being enabled: the service can sit in the platform's "Binding" list
+         * indefinitely with the enabled list still naming it, and in that state
+         * every global action silently does nothing.
+         */
+        val isConnected: Boolean get() = instance != null
+
         fun back(): Boolean =
             instance?.performGlobalAction(GLOBAL_ACTION_BACK) ?: false
 

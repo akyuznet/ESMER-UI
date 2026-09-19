@@ -39,6 +39,7 @@ import com.example.esmerui.car.CarControl
 import com.example.esmerui.car.CarInfo
 import com.example.esmerui.car.CarStatus
 import android.widget.Toast
+import com.example.esmerui.launcher.HomeItem
 import com.example.esmerui.launcher.LauncherSettings
 import com.example.esmerui.launcher.NavAction
 import com.example.esmerui.launcher.NavBarConfig
@@ -121,9 +122,33 @@ class NavBarService : Service() {
     /** Guards against stacking polls if one request stalls on a slow reply. */
     private var pollInFlight = false
 
+    /**
+     * Every action anyone is looking at, across the bars and the home grid.
+     *
+     * Each signal is a round trip to the car, so reading ones nobody shows is pure
+     * waste - but "nobody" now has to include the home screen, which can carry the
+     * same readouts. Recomputed per poll rather than cached: it is a list walk over
+     * a few dozen entries, against a setting the user can change at any moment.
+     */
+    private fun shownActions(): Set<NavAction> {
+        val onBars = infoCells.map { it.action }
+        val onHome = settings.homeCells.orEmpty().mapNotNull {
+            (it.item as? HomeItem.Action)?.action
+        }
+        return (onBars + onHome).toSet()
+    }
+
     private val statusPoll = object : Runnable {
         override fun run() {
-            if (groupReadouts.isEmpty() && stateButtons.isEmpty() && infoCells.isEmpty()) return
+            // The home grid can be showing readouts with no bar up at all, so a
+            // poll is worth running whenever anything anywhere wants a value.
+            val wanted = shownActions()
+            CarInfo.shown = wanted
+            if (groupReadouts.isEmpty() && stateButtons.isEmpty() &&
+                infoCells.isEmpty() && wanted.isEmpty()
+            ) {
+                return
+            }
 
             // The clock has to tick even while a car read is still outstanding, so
             // it is repainted every pass rather than only on a reply.
@@ -136,6 +161,9 @@ class NavBarService : Service() {
                         pollInFlight = false
                         refreshReadouts()
                         refreshButtonStates()
+                        // The home grid can carry the same readouts, and it is
+                        // Compose - it needs telling that the values moved.
+                        CarInfo.bumpRevision()
                     },
                 ) {
                     // The radios go here too: a dozen binder round trips into the
@@ -176,9 +204,13 @@ class NavBarService : Service() {
      */
     private fun watchAccessibilitySetting() {
         AccessibilityGuard.ensureEnabled(this)
+        verifyAccessibility(attempt = 0)
         val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
             override fun onChange(selfChange: Boolean) {
                 AccessibilityGuard.ensureEnabled(this@NavBarService)
+                // Being re-added to the list is exactly when the platform tends to
+                // leave us half-bound, so re-check rather than assume it took.
+                verifyAccessibility(attempt = 0)
             }
         }
         accessibilityObserver = observer
@@ -193,6 +225,13 @@ class NavBarService : Service() {
         if (intent?.action == ACTION_STOP) {
             stopSelf()
             return START_NOT_STICKY
+        }
+        // A press on a home-grid control routes here rather than duplicating the
+        // action logic in the launcher: climate writes, the accessibility repair
+        // and the optimistic redraws all already live in this service.
+        if (intent?.action == ACTION_PERFORM) {
+            NavAction.from(intent.getStringExtra(EXTRA_ACTION))?.let { perform(it) }
+            return START_STICKY
         }
         rebuild()
         return START_STICKY
@@ -224,7 +263,12 @@ class NavBarService : Service() {
         overscanApplied = OverscanController.sync(this)
 
         val configs = settings.renderableNavBars
-        if (configs.isEmpty()) return
+        // No bars is no longer the same as nothing to do: the home grid can carry
+        // readouts on its own, and they still need polling.
+        if (configs.isEmpty()) {
+            startPollingIfWanted()
+            return
+        }
 
         configs.forEach { config ->
             val view = buildBar(config)
@@ -242,9 +286,16 @@ class NavBarService : Service() {
         }
 
         refreshButtonStates()
+        startPollingIfWanted()
+    }
+
+    private fun startPollingIfWanted() {
         // Tell the reader which signals anyone is actually looking at.
-        CarInfo.shown = infoCells.map { it.action }.toSet()
-        if (groupReadouts.isNotEmpty() || stateButtons.isNotEmpty() || infoCells.isNotEmpty()) {
+        val wanted = shownActions()
+        CarInfo.shown = wanted
+        if (groupReadouts.isNotEmpty() || stateButtons.isNotEmpty() ||
+            infoCells.isNotEmpty() || wanted.isNotEmpty()
+        ) {
             pollHandler.post(statusPoll)
         }
     }
@@ -1401,10 +1452,46 @@ class NavBarService : Service() {
 
     private var lastRepairAt = 0L
 
+    /**
+     * Repairs a half-bound accessibility service before anyone presses anything.
+     *
+     * Updating the app tears the binding down, and on this ROM it does not reliably
+     * come back: the service stays in the platform's "Binding services" list and
+     * never reaches "Bound". Nothing surfaces that - the enabled list still names
+     * us - so the first sign is a dead Back button, which is a poor way to find out
+     * while driving.
+     *
+     * The first check waits [ACCESSIBILITY_GRACE_MS], because connecting legitimately
+     * takes a moment after a boot or an install; only then is a rebind forced, and
+     * the result is checked again rather than assumed.
+     */
+    private fun verifyAccessibility(attempt: Int) {
+        pollHandler.postDelayed({
+            if (NavAccessibilityService.isConnected) return@postDelayed
+
+            // Not being listed at all is a different problem: the user has to grant
+            // it, and no amount of rebinding substitutes for that.
+            if (!AccessibilityGuard.ensureEnabled(this)) {
+                warnAccessibility()
+                return@postDelayed
+            }
+
+            val now = SystemClock.elapsedRealtime()
+            if (attempt >= ACCESSIBILITY_REPAIR_ATTEMPTS ||
+                now - lastRepairAt < REPAIR_COOLDOWN_MS
+            ) {
+                warnAccessibility()
+                return@postDelayed
+            }
+            lastRepairAt = now
+            AccessibilityGuard.rebind(this) { verifyAccessibility(attempt + 1) }
+        }, if (attempt == 0) ACCESSIBILITY_GRACE_MS else REBIND_SETTLE_MS)
+    }
+
     private fun warnAccessibility() {
         Toast.makeText(
             this,
-            "Enable ESMER Launcher under Accessibility for Back and Recents",
+            getString(R.string.accessibility_needed, getString(R.string.app_name)),
             Toast.LENGTH_LONG,
         ).show()
     }
@@ -1487,6 +1574,15 @@ class NavBarService : Service() {
 
         /** The platform needs a beat after the toggle before the service is live. */
         private const val REBIND_SETTLE_MS = 1_200L
+
+        /**
+         * How long the service is given to connect on its own before we decide it is
+         * stuck. Generous: at boot the platform has a great deal else to do first.
+         */
+        private const val ACCESSIBILITY_GRACE_MS = 6_000L
+
+        /** Past this, rebinding is not working and the user needs telling. */
+        private const val ACCESSIBILITY_REPAIR_ATTEMPTS = 2
 
         /** Lit layers indexed by how many parts are green; 0 is blank. */
         private val WIFI_SYMBOL = RadioSymbol(
@@ -1589,6 +1685,17 @@ class NavBarService : Service() {
         private const val FLASH_MS = 180L
 
         const val ACTION_STOP = "com.example.esmerui.NAVBAR_STOP"
+        const val ACTION_PERFORM = "com.example.esmerui.NAVBAR_PERFORM"
+        const val EXTRA_ACTION = "action"
+
+        /** Runs a bar action from elsewhere in the app - the home grid, chiefly. */
+        fun perform(context: Context, action: NavAction) {
+            context.startService(
+                Intent(context, NavBarService::class.java)
+                    .setAction(ACTION_PERFORM)
+                    .putExtra(EXTRA_ACTION, action.name)
+            )
+        }
 
         /** Starts, restarts or stops the bar to match current settings. */
         fun sync(context: Context) {

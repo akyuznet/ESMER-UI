@@ -9,6 +9,9 @@ import android.provider.Settings
 import android.telephony.SignalStrength
 import android.telephony.SubscriptionManager
 import android.telephony.TelephonyManager
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.setValue
 import com.example.esmerui.launcher.NavAction
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -28,6 +31,21 @@ object CarInfo {
 
     /** Nothing to show yet. Deliberately not "0", which would read as a real value. */
     const val NO_VALUE = "--"
+
+    /**
+     * Bumped after every poll, purely so Compose can see the readings change.
+     *
+     * The bar reads these fields from plain views and repaints them itself, so the
+     * values are ordinary volatile fields. The home grid is Compose and needs
+     * something observable to recompose against; one counter is cheaper than making
+     * two dozen fields into snapshot state.
+     */
+    var revision by mutableIntStateOf(0)
+        private set
+
+    fun bumpRevision() {
+        revision++
+    }
 
     @Volatile
     var gear: String? = null
