@@ -150,6 +150,21 @@ object BydFeatures {
     }
 
     /**
+     * Writes by raw id, for probing a register this ROM names differently, or not
+     * at all. Diagnostics only; everything the bar does goes through names.
+     */
+    fun writeId(id: Int, value: Int): Boolean {
+        val target = manager ?: return false
+        val result = runCatching { setInt?.invoke(target, DEVICE_ANY, id, value) as? Int }
+            .onFailure { Log.w(TAG, "write id ${"0x%08X".format(id)} failed: ${it.cause ?: it}") }
+            .getOrNull()
+        if (result != COMMAND_SUCCESS) {
+            Log.w(TAG, "write id ${"0x%08X".format(id)}=$value returned $result")
+        }
+        return result == COMMAND_SUCCESS
+    }
+
+    /**
      * Writes a value. Note the convention: a signal is read from `X` but written to
      * `X_SET` - writing to the read id is rejected by the platform.
      */
