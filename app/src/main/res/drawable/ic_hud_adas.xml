@@ -1,0 +1,23 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!-- The windscreen with the lane lines and the car ahead that ADAS draws. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M5,6 L19,6 L21,17 L3,17 Z" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:pathData="M7.5,15 L9.6,9 M16.5,15 L14.4,9" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M10.4,10.2 L13.6,10.2 L14.2,13 L9.8,13 Z" />
+</vector>

@@ -145,6 +145,65 @@ object CarBus {
     fun setSteeringHeat(on: Boolean): Boolean =
         BydFeatures.writeInt(SETTING, "SET_AUTO_STEER_WHEEL_HEATING_GEAR_SET", if (on) 1 else 0)
 
+    // ---- Head-up display ---------------------------------------------------
+
+    /**
+     * The HUD is drawn by the cluster's own controller from CAN data; the head unit
+     * only holds its switches, which live in the Setting group and share one
+     * encoding - 1 on, 2 off - exactly as the car's Settings app writes them. Each
+     * is read from a `_FEEDBACK` signal and written to its `_SET` twin, and the
+     * names were taken from that app rather than guessed: "navigation on HUD" is
+     * the dynamic-navi function, "ADAS on HUD" the safe-driving-assist status, and
+     * `SET_HUD_MODE` is the theme picker, not a content selector.
+     */
+    private const val HUD_ON = 1
+    private const val HUD_OFF = 2
+
+    const val HUD_THEME_CLASSIC = 1
+    const val HUD_THEME_SNOW = 2
+
+    /** The car's own limits, from its Settings app. */
+    val HUD_BRIGHTNESS_RANGE = 1..11
+    val HUD_HEIGHT_RANGE = 1..21
+
+    /** Whether the car has a HUD at all: 1 is a windscreen unit, 2 an AR one. */
+    fun hudFitted(): Boolean? = reading(SETTING, "SET_HUD_CONFIG")?.let { it > 0 }
+
+    private fun hudSwitch(feedback: String): Boolean? =
+        reading(SETTING, feedback)?.let { it == HUD_ON }
+
+    private fun setHudSwitch(target: String, on: Boolean): Boolean =
+        BydFeatures.writeInt(SETTING, target, if (on) HUD_ON else HUD_OFF)
+
+    fun hudOn(): Boolean? = hudSwitch("SET_HUD_SWITCH_STATUS_FEEDBACK")
+
+    fun setHud(on: Boolean): Boolean = setHudSwitch("SET_HUD_SWITCH_SET", on)
+
+    fun hudNavigation(): Boolean? = hudSwitch("SET_DYNAMIC_NAVI_FUNCTION_STATUS_FEEDBACK")
+
+    fun setHudNavigation(on: Boolean): Boolean =
+        setHudSwitch("SET_DYNAMIC_NAVI_FUNCTION_STATUS_SET", on)
+
+    fun hudAdas(): Boolean? = hudSwitch("SET_SAFE_DRIVING_ASSIST_STATUS_FEEDBACK")
+
+    fun setHudAdas(on: Boolean): Boolean = setHudSwitch("SET_SAFE_DRIVING_ASSIST_STATUS_SET", on)
+
+    fun hudTheme(): Int? = reading(SETTING, "SET_HUD_MODE_FEEDBACK")
+        ?.takeIf { it == HUD_THEME_CLASSIC || it == HUD_THEME_SNOW }
+
+    fun setHudTheme(theme: Int): Boolean = BydFeatures.writeInt(SETTING, "SET_HUD_MODE_SET", theme)
+
+    fun hudBrightness(): Int? =
+        reading(SETTING, "SET_BRIGHTNESS_GEAR_FEEDBACK")?.takeIf { it in HUD_BRIGHTNESS_RANGE }
+
+    fun setHudBrightness(level: Int): Boolean =
+        BydFeatures.writeInt(SETTING, "SET_BRIGHTNESS_GEAR_SET", level)
+
+    fun hudHeight(): Int? =
+        reading(SETTING, "SET_HEIGHT_GEAR_FEEDBACK")?.takeIf { it in HUD_HEIGHT_RANGE }
+
+    fun setHudHeight(level: Int): Boolean = BydFeatures.writeInt(SETTING, "SET_HEIGHT_GEAR_SET", level)
+
     // ---- Readouts ----------------------------------------------------------
 
     /**

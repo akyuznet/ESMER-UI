@@ -37,6 +37,7 @@ enum class NavActionGroup(val label: String) {
     MEDIA("Volume"),
     CLIMATE("Climate"),
     SEATS("Seats"),
+    HUD("Head-up display"),
     INFO("Information"),
 }
 
@@ -91,6 +92,24 @@ enum class NavAction(
     SEAT_VENT_PASSENGER("Cool R", NavActionGroup.SEATS, needsCar = true),
 
     /**
+     * The head-up display's own switches, driven through the same setting registers
+     * the car's Settings app writes - the HUD itself is drawn by the cluster, so
+     * these choose what it shows rather than drawing on it. The theme is a two-way
+     * pick, so its button swaps glyph instead of lighting up; the others are plain
+     * on/off. Brightness and height are steppers like the climate pair.
+     */
+    HUD_POWER("HUD", NavActionGroup.HUD, needsCar = true),
+    HUD_NAV("HUD nav", NavActionGroup.HUD, needsCar = true),
+    HUD_ADAS("HUD ADAS", NavActionGroup.HUD, needsCar = true),
+    HUD_THEME("HUD theme", NavActionGroup.HUD, needsCar = true),
+    HUD_BRIGHTNESS_GROUP("HUD brightness", NavActionGroup.HUD, needsCar = true, isGroup = true),
+    HUD_HEIGHT_GROUP("HUD height", NavActionGroup.HUD, needsCar = true, isGroup = true),
+    HUD_BRIGHTNESS_UP("HUD bright +", NavActionGroup.HUD, needsCar = true),
+    HUD_BRIGHTNESS_DOWN("HUD bright -", NavActionGroup.HUD, needsCar = true),
+    HUD_HEIGHT_UP("HUD height +", NavActionGroup.HUD, needsCar = true),
+    HUD_HEIGHT_DOWN("HUD height -", NavActionGroup.HUD, needsCar = true),
+
+    /**
      * Readouts: an icon and a live value, pressed for nothing. The clock and date
      * come from the head unit; the rest are the car's own signals.
      */
@@ -114,6 +133,33 @@ enum class NavAction(
     INFO_TEMP_IN("Inside temp", NavActionGroup.INFO, needsCar = true, isReadout = true),
     INFO_TEMP_OUT("Outside temp", NavActionGroup.INFO, needsCar = true, isReadout = true),
     ;
+
+    /** The head-up display controls, which share one poll gate and one colour rule. */
+    val isHud: Boolean get() = group == NavActionGroup.HUD
+
+    /**
+     * The single-step actions a stepper is built from, down then up, or null for
+     * anything that is not a stepper. Kept here so the bar, the grid and the command
+     * dispatch cannot disagree about which button moves which value.
+     */
+    val steps: Pair<NavAction, NavAction>?
+        get() = when (this) {
+            TEMP_GROUP -> TEMP_DOWN to TEMP_UP
+            FAN_GROUP -> FAN_DOWN to FAN_UP
+            HUD_BRIGHTNESS_GROUP -> HUD_BRIGHTNESS_DOWN to HUD_BRIGHTNESS_UP
+            HUD_HEIGHT_GROUP -> HUD_HEIGHT_DOWN to HUD_HEIGHT_UP
+            else -> null
+        }
+
+    /** The caption under a stepper's value, so a bare number is not ambiguous. */
+    val stepperCaption: String
+        get() = when (this) {
+            TEMP_GROUP -> "TEMP"
+            FAN_GROUP -> "FAN"
+            HUD_BRIGHTNESS_GROUP -> "HUD BRIGHT"
+            HUD_HEIGHT_GROUP -> "HUD HEIGHT"
+            else -> ""
+        }
 
     companion object {
         fun from(name: String?): NavAction? = entries.firstOrNull { it.name == name }

@@ -98,7 +98,8 @@ object CarControl {
     }
 
     /** True when [message] reports a failure rather than a new value. */
-    fun isFailure(message: String): Boolean = message == REFUSED || message == UNAVAILABLE
+    fun isFailure(message: String): Boolean =
+        message == REFUSED || message == UNAVAILABLE || message == HUD_UNAVAILABLE
 
     /** Falls back to reading the car only when the cache has never been filled. */
     fun nudgeTemperature(delta: Int): String {
@@ -309,6 +310,91 @@ object CarControl {
         return seats.optJSONArray(if (heating) "heat" else "cool")?.optInt(index, 0) ?: 0
     }
 
+    // ---- Head-up display ---------------------------------------------------
+
+    /**
+     * The HUD's switches go straight to the feature bus: OverDrive's REST API has
+     * no HUD actions, and the Setting group is the one this car has never refused.
+     * Each preview moves the button before the write goes out, and a refusal drops
+     * the preview and re-reads, the same contract as the climate commands.
+     */
+    /**
+     * The cached value once the poll has filled it, else the car's own answer.
+     *
+     * A HUD button pressed before any HUD control has been polled - from the home
+     * grid on a bar without one, say - would otherwise flip from a default and
+     * write the state the car is already in.
+     */
+    private inline fun <T> hudCurrent(cached: T, read: () -> T?): T =
+        if (CarStatus.hudSynced) cached else read() ?: cached
+
+    fun toggleHud(): String {
+        val next = !hudCurrent(CarStatus.hudOn) { CarBus.hudOn() }
+        CarStatus.previewHudOn(next)
+        return hudResult(CarBus.setHud(next), if (next) "HUD on" else "HUD off")
+    }
+
+    fun toggleHudNavigation(): String {
+        val next = !hudCurrent(CarStatus.hudNavigationOn) { CarBus.hudNavigation() }
+        CarStatus.previewHudNavigation(next)
+        return hudResult(
+            CarBus.setHudNavigation(next),
+            if (next) "HUD navigation on" else "HUD navigation off",
+        )
+    }
+
+    fun toggleHudAdas(): String {
+        val next = !hudCurrent(CarStatus.hudAdasOn) { CarBus.hudAdas() }
+        CarStatus.previewHudAdas(next)
+        return hudResult(CarBus.setHudAdas(next), if (next) "HUD ADAS on" else "HUD ADAS off")
+    }
+
+    /** Two themes, so a press is simply the other one. */
+    fun toggleHudTheme(): String {
+        val current = hudCurrent(CarStatus.hudTheme) { CarBus.hudTheme() }
+        val next = if (current == CarBus.HUD_THEME_SNOW) {
+            CarBus.HUD_THEME_CLASSIC
+        } else {
+            CarBus.HUD_THEME_SNOW
+        }
+        CarStatus.previewHudTheme(next)
+        return hudResult(
+            CarBus.setHudTheme(next),
+            if (next == CarBus.HUD_THEME_SNOW) "HUD theme: Snow" else "HUD theme: Classic",
+        )
+    }
+
+    fun setHudBrightness(target: Int): String {
+        val value = target.coerceIn(CarBus.HUD_BRIGHTNESS_RANGE)
+        return hudResult(CarBus.setHudBrightness(value), "HUD brightness $value")
+    }
+
+    fun setHudHeight(target: Int): String {
+        val value = target.coerceIn(CarBus.HUD_HEIGHT_RANGE)
+        return hudResult(CarBus.setHudHeight(value), "HUD height $value")
+    }
+
+    /** Falls back to reading the car only when the cache has never been filled. */
+    fun nudgeHudBrightness(delta: Int): String {
+        val base = CarStatus.hudBrightness ?: CarBus.hudBrightness() ?: return HUD_UNAVAILABLE
+        return setHudBrightness(base + delta)
+    }
+
+    fun nudgeHudHeight(delta: Int): String {
+        val base = CarStatus.hudHeight ?: CarBus.hudHeight() ?: return HUD_UNAVAILABLE
+        return setHudHeight(base + delta)
+    }
+
+    /** A refused HUD write means the preview is a lie - drop it and re-read at once. */
+    private fun hudResult(ok: Boolean, message: String): String {
+        if (!ok) {
+            CarStatus.releaseHud()
+            CarStatus.refresh()
+        }
+        return if (ok) message else REFUSED
+    }
+
     private const val UNAVAILABLE = "OverDrive not reachable"
+    private const val HUD_UNAVAILABLE = "HUD not answering"
     private const val REFUSED = "Car refused the command"
 }

@@ -72,8 +72,8 @@ class NavBarService : Service() {
      */
     private val groupReadouts = mutableMapOf<NavAction, MutableList<TextView>>()
 
-    /** "TEMP"/"FAN" captions under each stepper value. */
-    private val groupCaptions = mutableListOf<TextView>()
+    /** The captions under each stepper value, keyed like the readouts above. */
+    private val groupCaptions = mutableMapOf<NavAction, MutableList<TextView>>()
 
     /**
      * Buttons whose tint reflects car state, e.g. A/C on, with what was last drawn.
@@ -138,12 +138,22 @@ class NavBarService : Service() {
         return (onBars + onHome).toSet()
     }
 
+    /**
+     * Whether any HUD control is on screen, which is what makes the HUD's six
+     * settings worth reading each poll. Bar buttons and steppers count as well as
+     * the grid, which is why this is not simply a look at [shownActions].
+     */
+    private fun hudShown(shown: Set<NavAction>): Boolean =
+        shown.any { it.isHud } || stateButtons.keys.any { it.isHud } ||
+            groupReadouts.keys.any { it.isHud }
+
     private val statusPoll = object : Runnable {
         override fun run() {
             // The home grid can be showing readouts with no bar up at all, so a
             // poll is worth running whenever anything anywhere wants a value.
             val wanted = shownActions()
             CarInfo.shown = wanted
+            CarStatus.hudWanted = hudShown(wanted)
             if (groupReadouts.isEmpty() && stateButtons.isEmpty() &&
                 infoCells.isEmpty() && wanted.isEmpty()
             ) {
@@ -293,6 +303,7 @@ class NavBarService : Service() {
         // Tell the reader which signals anyone is actually looking at.
         val wanted = shownActions()
         CarInfo.shown = wanted
+        CarStatus.hudWanted = hudShown(wanted)
         if (groupReadouts.isNotEmpty() || stateButtons.isNotEmpty() ||
             infoCells.isNotEmpty() || wanted.isNotEmpty()
         ) {
@@ -366,27 +377,28 @@ class NavBarService : Service() {
         // they would tell the next refresh that fresh, blank views were already right.
         lastReadoutText.clear()
         lastReadoutColour.clear()
-        lastCaptionColour = 0
+        lastCaptionColour.clear()
     }
 
     /**
-     * Steps a climate value and moves the readout on the spot.
+     * Steps a stepper's value and moves the readout on the spot.
      *
      * The target is computed from the cached value and shown immediately, so the
      * number tracks the press rather than the network. The command then goes out
      * with that absolute target, and the poller reconciles against the car.
      */
     private fun step(action: NavAction, delta: Int) {
-        val isTemperature = action == NavAction.TEMP_GROUP
-        val target = if (isTemperature) {
-            CarStatus.previewTemperature(delta, CarControl.temperatureRange)
-        } else {
-            CarStatus.previewFan(delta, CarControl.fanRange)
+        val target = when (action) {
+            NavAction.TEMP_GROUP -> CarStatus.previewTemperature(delta, CarControl.temperatureRange)
+            NavAction.FAN_GROUP -> CarStatus.previewFan(delta, CarControl.fanRange)
+            NavAction.HUD_BRIGHTNESS_GROUP -> CarStatus.previewHudBrightness(delta)
+            NavAction.HUD_HEIGHT_GROUP -> CarStatus.previewHudHeight(delta)
+            else -> return
         }
 
         if (target == null) {
             // Nothing cached yet - fall back to the slower read-then-write path.
-            car { if (isTemperature) CarControl.nudgeTemperature(delta) else CarControl.nudgeFan(delta) }
+            car { nudge(action, delta) }
             return
         }
 
@@ -394,7 +406,22 @@ class NavBarService : Service() {
         groupReadouts[action]?.forEach { flash(it) }
         // Quiet on success: the readout already shows the result, and stepping
         // quickly would otherwise queue a toast per press.
-        carQuietly { if (isTemperature) CarControl.setTemperature(target) else CarControl.setFan(target) }
+        carQuietly {
+            when (action) {
+                NavAction.TEMP_GROUP -> CarControl.setTemperature(target)
+                NavAction.FAN_GROUP -> CarControl.setFan(target)
+                NavAction.HUD_BRIGHTNESS_GROUP -> CarControl.setHudBrightness(target)
+                else -> CarControl.setHudHeight(target)
+            }
+        }
+    }
+
+    /** The read-then-write path for a stepper whose value has never been polled. */
+    private fun nudge(action: NavAction, delta: Int): String = when (action) {
+        NavAction.TEMP_GROUP -> CarControl.nudgeTemperature(delta)
+        NavAction.FAN_GROUP -> CarControl.nudgeFan(delta)
+        NavAction.HUD_BRIGHTNESS_GROUP -> CarControl.nudgeHudBrightness(delta)
+        else -> CarControl.nudgeHudHeight(delta)
     }
 
     /**
@@ -431,18 +458,33 @@ class NavBarService : Service() {
      * which goes on working with the cooling switched off.
      */
     private fun refreshReadouts() {
-        val colour = if (CarStatus.climateOn) ICON_ACTIVE_COLOR else ICON_COLOR
+        val climate = CarStatus.climateOn
+        val colour = if (climate) ICON_ACTIVE_COLOR else ICON_COLOR
         setReadout(NavAction.TEMP_GROUP, CarStatus.temperatureLabel(), colour)
         setReadout(NavAction.FAN_GROUP, CarStatus.fanLabel(), colour)
 
+        // The HUD steppers follow the display's own switch instead: a brightness
+        // shown green while the glass is dark would be a live number for nothing.
+        val hud = CarStatus.hudOn
+        val hudColour = if (hud) ICON_ACTIVE_COLOR else ICON_COLOR
+        setReadout(NavAction.HUD_BRIGHTNESS_GROUP, CarStatus.hudBrightnessLabel(), hudColour)
+        setReadout(NavAction.HUD_HEIGHT_GROUP, CarStatus.hudHeightLabel(), hudColour)
+
         // Captions follow the value's state but stay dimmer, so the number leads.
-        val captionColour = if (CarStatus.climateOn) CAPTION_ACTIVE_COLOR else CAPTION_COLOR
-        if (lastCaptionColour != captionColour) {
-            lastCaptionColour = captionColour
-            groupCaptions.forEach { it.setTextColor(captionColour) }
-        }
+        setCaption(NavAction.TEMP_GROUP, climate)
+        setCaption(NavAction.FAN_GROUP, climate)
+        setCaption(NavAction.HUD_BRIGHTNESS_GROUP, hud)
+        setCaption(NavAction.HUD_HEIGHT_GROUP, hud)
 
         refreshInfoCells()
+    }
+
+    /** Writes only on a change, for the same reason as [setReadout]. */
+    private fun setCaption(action: NavAction, active: Boolean) {
+        val colour = if (active) CAPTION_ACTIVE_COLOR else CAPTION_COLOR
+        if (lastCaptionColour[action] == colour) return
+        lastCaptionColour[action] = colour
+        groupCaptions[action]?.forEach { it.setTextColor(colour) }
     }
 
     /**
@@ -523,7 +565,7 @@ class NavBarService : Service() {
 
     private val lastReadoutText = mutableMapOf<NavAction, String>()
     private val lastReadoutColour = mutableMapOf<NavAction, Int>()
-    private var lastCaptionColour = 0
+    private val lastCaptionColour = mutableMapOf<NavAction, Int>()
 
     /** Drops the remembered tint for one button, so the next refresh repaints it. */
     private fun forgetTint(view: ImageView) {
@@ -826,10 +868,9 @@ class NavBarService : Service() {
      */
     private fun stepperGroup(action: NavAction, config: NavBarConfig): View {
         val horizontal = config.position.isHorizontal
-        val isTemperature = action == NavAction.TEMP_GROUP
 
         val readout = TextView(this).apply {
-            text = if (isTemperature) CarStatus.temperatureLabel() else CarStatus.fanLabel()
+            text = CarStatus.stepperLabel(action)
             setTextColor(ICON_COLOR)
             textSize = (config.iconSizeDp * 0.50f).coerceIn(13f, 30f)
             // Drops the font's built-in ascent and descent padding. The value and its
@@ -846,7 +887,7 @@ class NavBarService : Service() {
 
         // Caption under the value, so a bare number is not ambiguous at a glance.
         val caption = TextView(this).apply {
-            text = if (isTemperature) "TEMP" else "FAN"
+            text = action.stepperCaption
             setTextColor(CAPTION_COLOR)
             textSize = (config.iconSizeDp * 0.30f).coerceIn(9f, 17f)
             gravity = Gravity.CENTER
@@ -856,7 +897,7 @@ class NavBarService : Service() {
             // rather than as one reading with its label tucked underneath.
             includeFontPadding = false
         }
-        groupCaptions += caption
+        groupCaptions.track(action, caption)
 
         // Stacked so the pair reads as one unit and still centres in its cell.
         val valueColumn = LinearLayout(this).apply {
@@ -1391,9 +1432,19 @@ class NavBarService : Service() {
             NavAction.AIRFLOW_SCREEN -> car { CarControl.toggleVent(Vent.SCREEN) }
             NavAction.STEERING_HEAT -> car { CarControl.toggleSteeringHeat() }
 
+            NavAction.HUD_POWER -> car { CarControl.toggleHud() }
+            NavAction.HUD_NAV -> car { CarControl.toggleHudNavigation() }
+            NavAction.HUD_ADAS -> car { CarControl.toggleHudAdas() }
+            NavAction.HUD_THEME -> car { CarControl.toggleHudTheme() }
+            NavAction.HUD_BRIGHTNESS_UP -> car { CarControl.nudgeHudBrightness(1) }
+            NavAction.HUD_BRIGHTNESS_DOWN -> car { CarControl.nudgeHudBrightness(-1) }
+            NavAction.HUD_HEIGHT_UP -> car { CarControl.nudgeHudHeight(1) }
+            NavAction.HUD_HEIGHT_DOWN -> car { CarControl.nudgeHudHeight(-1) }
+
             // Groups build their own +/- buttons; they are never "pressed" directly,
             // and a readout has nothing to press at all.
-            NavAction.TEMP_GROUP, NavAction.FAN_GROUP -> Unit
+            NavAction.TEMP_GROUP, NavAction.FAN_GROUP,
+            NavAction.HUD_BRIGHTNESS_GROUP, NavAction.HUD_HEIGHT_GROUP -> Unit
             NavAction.INFO_CLOCK, NavAction.INFO_DATE, NavAction.INFO_SIGNAL,
             NavAction.INFO_WIFI, NavAction.INFO_BLUETOOTH, NavAction.INFO_GEAR,
             NavAction.INFO_LIGHTS, NavAction.INFO_TURN, NavAction.INFO_RANGE_EV,

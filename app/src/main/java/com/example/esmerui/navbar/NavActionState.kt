@@ -38,7 +38,11 @@ object NavActionState {
         NavAction.SEAT_VENT_PASSENGER,
         NavAction.AIRFLOW_FACE,
         NavAction.AIRFLOW_FEET,
-        NavAction.AIRFLOW_SCREEN -> true
+        NavAction.AIRFLOW_SCREEN,
+        NavAction.HUD_POWER,
+        NavAction.HUD_NAV,
+        NavAction.HUD_ADAS,
+        NavAction.HUD_THEME -> true
 
         else -> false
     }
@@ -49,10 +53,11 @@ object NavActionState {
      * Recirculation is deliberately excluded: its two icons already say which mode
      * the cabin is in, so colouring it as well would be saying the same thing twice
      * - and would wrongly imply fresh air is the "off" state rather than the other
-     * half of a pair.
+     * half of a pair. The HUD theme is the same shape of thing: Classic and Snow
+     * are two choices, not on and off, and the glyph already says which.
      */
     fun showsActiveColour(action: NavAction): Boolean =
-        isStateful(action) && action != NavAction.RECIRCULATE
+        isStateful(action) && action != NavAction.RECIRCULATE && action != NavAction.HUD_THEME
 
     fun isActive(action: NavAction): Boolean = when (action) {
         // The button switches cooling, so it reports cooling - but a compressor
@@ -74,6 +79,12 @@ object NavActionState {
         NavAction.AIRFLOW_FACE -> ventOpen(Vent.FACE)
         NavAction.AIRFLOW_FEET -> ventOpen(Vent.FOOT)
         NavAction.AIRFLOW_SCREEN -> ventOpen(Vent.SCREEN)
+
+        NavAction.HUD_POWER -> CarStatus.hudOn
+        // The two content switches only mean anything with the display lit, the
+        // way a vent only counts as open with the blower running.
+        NavAction.HUD_NAV -> CarStatus.hudOn && CarStatus.hudNavigationOn
+        NavAction.HUD_ADAS -> CarStatus.hudOn && CarStatus.hudAdasOn
         else -> false
     }
 }

@@ -2,6 +2,7 @@ package com.example.esmerui.navbar
 
 import androidx.annotation.DrawableRes
 import com.example.esmerui.R
+import com.example.esmerui.car.CarBus
 import com.example.esmerui.car.CarStatus
 import com.example.esmerui.launcher.NavAction
 
@@ -34,6 +35,11 @@ object NavActionIcons {
         NavAction.SEAT_VENT_PASSENGER ->
             if (CarStatus.seatVentLevelPassenger >= 2) R.drawable.ic_seat_vent_2_p
             else R.drawable.ic_seat_vent_p
+
+        // Two themes, two glyphs: the button shows the one that is on.
+        NavAction.HUD_THEME ->
+            if (CarStatus.hudTheme == CarBus.HUD_THEME_SNOW) R.drawable.ic_hud_snow
+            else R.drawable.ic_hud_theme
 
         else -> of(action)
     }
@@ -91,6 +97,15 @@ object NavActionIcons {
         // Groups draw their own +/-; this is only for the settings picker tile.
         NavAction.TEMP_GROUP -> R.drawable.ic_thermostat
         NavAction.FAN_GROUP -> R.drawable.ic_fan
+
+        NavAction.HUD_POWER -> R.drawable.ic_hud
+        NavAction.HUD_NAV -> R.drawable.ic_hud_nav
+        NavAction.HUD_ADAS -> R.drawable.ic_hud_adas
+        NavAction.HUD_THEME -> R.drawable.ic_hud_theme
+        NavAction.HUD_BRIGHTNESS_GROUP, NavAction.HUD_BRIGHTNESS_UP,
+        NavAction.HUD_BRIGHTNESS_DOWN -> R.drawable.ic_hud_brightness
+        NavAction.HUD_HEIGHT_GROUP, NavAction.HUD_HEIGHT_UP,
+        NavAction.HUD_HEIGHT_DOWN -> R.drawable.ic_hud_height
 
         NavAction.INFO_CLOCK -> R.drawable.ic_info_clock
         NavAction.INFO_DATE -> R.drawable.ic_info_date

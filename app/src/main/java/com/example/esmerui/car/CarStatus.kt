@@ -4,6 +4,7 @@ import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import com.example.esmerui.launcher.NavAction
 
 /**
  * Cached vehicle state for the bar's live readouts.
@@ -70,6 +71,56 @@ object CarStatus {
 
     @Volatile
     var seatVentLevelPassenger: Int = 0
+
+    // ---- Head-up display ---------------------------------------------------
+
+    /**
+     * Set by the bar while a HUD control is on screen. The six HUD signals are only
+     * worth their round trips then; a bar without one skips them entirely.
+     */
+    @Volatile
+    var hudWanted: Boolean = false
+
+    /** Whether the car has a HUD at all; null until the bus has answered once. */
+    @Volatile
+    var hudFitted: Boolean? = null
+
+    /**
+     * True once the poll has filled the HUD fields at least once. Before that a
+     * toggle has nothing to flip from, so it asks the car directly instead.
+     */
+    @Volatile
+    var hudSynced: Boolean = false
+        private set
+
+    @Volatile
+    var hudOn: Boolean = false
+
+    @Volatile
+    var hudNavigationOn: Boolean = false
+
+    @Volatile
+    var hudAdasOn: Boolean = false
+
+    /** [CarBus.HUD_THEME_CLASSIC] or [CarBus.HUD_THEME_SNOW]; null until read. */
+    @Volatile
+    var hudTheme: Int? = null
+
+    @Volatile
+    var hudBrightness: Int? = null
+
+    @Volatile
+    var hudHeight: Int? = null
+
+    /**
+     * Until when the poll leaves the HUD values alone after one of our writes. The
+     * car echoes a HUD change a poll or two late, and taking its word in between
+     * would snap a readout back to the old value before settling on the new one.
+     */
+    @Volatile
+    private var hudHoldUntil = 0L
+
+    private const val HUD_HOLD_MS = 3_000L
 
     /**
      * Safety net for a pending write that the car never confirms - a refused command
@@ -227,6 +278,24 @@ object CarStatus {
         CarBus.seatLevel(driver = true, heating = false)?.let { seatVentLevel = it }
         CarBus.seatLevel(driver = false, heating = true)?.let { seatHeatLevelPassenger = it }
         CarBus.seatLevel(driver = false, heating = false)?.let { seatVentLevelPassenger = it }
+
+        readHud()
+    }
+
+    /** The HUD's switches and levels, read only while something is showing them. */
+    private fun readHud() {
+        // Fitted or not is a single read, wanted once: the settings screen needs it
+        // before any HUD control exists to want the rest.
+        if (hudFitted == null) hudFitted = CarBus.hudFitted()
+        if (!hudWanted || SystemClock.elapsedRealtime() < hudHoldUntil) return
+
+        CarBus.hudOn()?.let { hudOn = it }
+        CarBus.hudNavigation()?.let { hudNavigationOn = it }
+        CarBus.hudAdas()?.let { hudAdasOn = it }
+        CarBus.hudTheme()?.let { hudTheme = it }
+        CarBus.hudBrightness()?.let { hudBrightness = it }
+        CarBus.hudHeight()?.let { hudHeight = it }
+        hudSynced = true
     }
 
     /** Shared by both transports, so they cannot drift on the reconciliation rules. */
@@ -255,6 +324,65 @@ object CarStatus {
     fun temperatureLabel(): String = setpointC?.let { "$it°" } ?: "--"
 
     fun fanLabel(): String = fanLevel?.toString() ?: "--"
+
+    fun hudBrightnessLabel(): String = hudBrightness?.toString() ?: "--"
+
+    fun hudHeightLabel(): String = hudHeight?.toString() ?: "--"
+
+    /** One table for every stepper, so the bar and the grid cannot drift apart. */
+    fun stepperLabel(action: NavAction): String = when (action) {
+        NavAction.TEMP_GROUP -> temperatureLabel()
+        NavAction.FAN_GROUP -> fanLabel()
+        NavAction.HUD_BRIGHTNESS_GROUP -> hudBrightnessLabel()
+        NavAction.HUD_HEIGHT_GROUP -> hudHeightLabel()
+        else -> ""
+    }
+
+    // The HUD previews mirror the climate ones below: move the cached value on the
+    // press, hold it while the car catches up, and let a refusal re-sync it.
+
+    fun previewHudBrightness(delta: Int): Int? {
+        val next = (hudBrightness ?: return null).plus(delta).coerceIn(CarBus.HUD_BRIGHTNESS_RANGE)
+        hudBrightness = next
+        holdHud()
+        return next
+    }
+
+    fun previewHudHeight(delta: Int): Int? {
+        val next = (hudHeight ?: return null).plus(delta).coerceIn(CarBus.HUD_HEIGHT_RANGE)
+        hudHeight = next
+        holdHud()
+        return next
+    }
+
+    fun previewHudOn(on: Boolean) {
+        hudOn = on
+        holdHud()
+    }
+
+    fun previewHudNavigation(on: Boolean) {
+        hudNavigationOn = on
+        holdHud()
+    }
+
+    fun previewHudAdas(on: Boolean) {
+        hudAdasOn = on
+        holdHud()
+    }
+
+    fun previewHudTheme(theme: Int) {
+        hudTheme = theme
+        holdHud()
+    }
+
+    private fun holdHud() {
+        hudHoldUntil = SystemClock.elapsedRealtime() + HUD_HOLD_MS
+    }
+
+    /** Drops the hold so the next poll re-syncs the HUD from the car. */
+    fun releaseHud() {
+        hudHoldUntil = 0L
+    }
 
     /**
      * Applies a step to the cached value and returns the new target, without
@@ -340,5 +468,6 @@ object CarStatus {
         pendingSetpoint = null
         pendingFan = null
         pendingUntil = 0L
+        hudHoldUntil = 0L
     }
 }

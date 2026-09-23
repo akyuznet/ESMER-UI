@@ -594,6 +594,9 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
 
         // Grouped, because a flat list of 16 buttons is unreadable at a glance.
         NavActionGroup.entries.forEach { group ->
+            // A car without a head-up display gets no HUD section at all, rather
+            // than six buttons that can only ever say the car refused.
+            if (group == NavActionGroup.HUD && CarStatus.hudFitted == false) return@forEach
             val actions = NavAction.entries
                 .filter { it.group == group && (carAvailable || !it.needsCar) }
             if (actions.isEmpty()) return@forEach

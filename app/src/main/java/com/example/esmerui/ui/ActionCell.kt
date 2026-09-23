@@ -175,13 +175,17 @@ private fun StepperCell(
     modifier: Modifier = Modifier,
 ) {
     val poll = observePoll()
-    val isTemperature = action == NavAction.TEMP_GROUP
-    val tint = Color(remember(poll) { if (CarStatus.climateOn) NavPalette.ACTIVE else NavPalette.ICON })
-    val reading = remember(poll, action) {
-        if (isTemperature) CarStatus.temperatureLabel() else CarStatus.fanLabel()
-    }
-    val down = if (isTemperature) NavAction.TEMP_DOWN else NavAction.FAN_DOWN
-    val up = if (isTemperature) NavAction.TEMP_UP else NavAction.FAN_UP
+    val steps = action.steps ?: return
+    // Each stepper follows the switch behind it: the climate pair go green with the
+    // blower, the HUD pair with the display, so a level reads as live or idle.
+    val tint = Color(
+        remember(poll, action) {
+            val live = if (action.isHud) CarStatus.hudOn else CarStatus.climateOn
+            if (live) NavPalette.ACTIVE else NavPalette.ICON
+        }
+    )
+    val reading = remember(poll, action) { CarStatus.stepperLabel(action) }
+    val (down, up) = steps
 
     Row(
         modifier = modifier.fillMaxSize(),
@@ -202,7 +206,7 @@ private fun StepperCell(
                 maxLines = 1,
             )
             Text(
-                text = if (isTemperature) "TEMP" else "FAN",
+                text = action.stepperCaption,
                 style = MaterialTheme.typography.labelSmall.copy(
                     fontSize = 10.sp,
                     platformStyle = PlatformTextStyle(includeFontPadding = false),

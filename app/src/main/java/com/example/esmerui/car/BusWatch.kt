@@ -41,6 +41,18 @@ object BusWatch : BroadcastReceiver() {
     private const val ACTION = "com.example.esmerui.WATCH"
     private const val ACTION_SWEEP = "com.example.esmerui.SWEEP"
 
+    /**
+     * Presses a bar action from adb, for checking a control against the car's own
+     * feedback without a finger on the screen:
+     *
+     *     adb shell am broadcast -a com.example.esmerui.PERFORM -p com.example.esmerui \
+     *         --es action HUD_THEME
+     *
+     * Debug builds only. The service itself is not exported, so this is the one
+     * way in from outside - and a release build has no business offering it.
+     */
+    private const val ACTION_PERFORM = "com.example.esmerui.PERFORM"
+
     private const val MAX_HZ = 20
     private const val MAX_SECONDS = 600
     private const val HEARTBEAT_MS = 1_000L
@@ -51,6 +63,7 @@ object BusWatch : BroadcastReceiver() {
         context.registerReceiver(this, IntentFilter().apply {
             addAction(ACTION)
             addAction(ACTION_SWEEP)
+            addAction(ACTION_PERFORM)
         })
     }
 
@@ -60,6 +73,20 @@ object BusWatch : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_PERFORM) {
+            val debuggable = context.applicationInfo.flags and
+                android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE != 0
+            if (!debuggable) return
+            val action = com.example.esmerui.launcher.NavAction.from(intent.getStringExtra("action"))
+            if (action == null) {
+                Log.w(TAG, "perform: unknown action ${intent.getStringExtra("action")}")
+                return
+            }
+            Log.i(TAG, "perform $action")
+            com.example.esmerui.navbar.NavBarService.perform(context, action)
+            return
+        }
+
         if (intent.action == ACTION_SWEEP) {
             val file = java.io.File(context.getExternalFilesDir(null), "bus-scan.txt")
             CarStatus.requestSweep(file)
