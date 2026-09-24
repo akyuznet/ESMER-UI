@@ -389,36 +389,52 @@ object CarControl {
     // ---- Roof --------------------------------------------------------------
 
     /**
-     * One press means "go the other way": anything open closes, a shut panel opens
-     * fully.
+     * One button, three meanings, the way the overhead switch behaves: press to
+     * send the panel off, press again to stop it wherever it has got to, press
+     * again to send it back.
      *
-     * Mid-travel counts as open, so a second press reverses a panel still on its
-     * way rather than doing nothing until it arrives - which is also the only stop
-     * the bar offers, and the one a hand reaches for when the roof is going
-     * somewhere it should not.
+     * Stopping is the ROM's own stop - `setMoonRoofAndSunshadeStop` writes 254 to
+     * these same percentage registers - and it is what leaves the glass part open,
+     * as well as the press a hand reaches for when the panel is going somewhere it
+     * should not.
      *
      * Nothing is previewed. The car reports the travel a poll at a time and that
      * is the useful thing to show; claiming the commanded value straight away
      * would read 100% with the glass barely moving.
      */
-    fun toggleSunroof(): String = toggleRoof(
+    fun toggleSunroof(): String = pressRoof(
         label = "Sunroof",
-        current = CarStatus.sunroofPercent ?: CarBus.sunroofPercent(),
+        panel = CarStatus.sunroof,
+        read = { CarBus.sunroofPercent() },
     ) { CarBus.setSunroofPercent(it) }
 
-    fun toggleSunshade(): String = toggleRoof(
+    fun toggleSunshade(): String = pressRoof(
         label = "Sunshade",
-        current = CarStatus.sunshadePercent ?: CarBus.sunshadePercent(),
+        panel = CarStatus.sunshade,
+        read = { CarBus.sunshadePercent() },
     ) { CarBus.setSunshadePercent(it) }
 
-    private inline fun toggleRoof(
+    private inline fun pressRoof(
         label: String,
-        current: Int?,
+        panel: RoofPanel,
+        read: () -> Int?,
         write: (Int) -> Boolean,
     ): String {
-        val opening = (current ?: return ROOF_UNAVAILABLE) <= CarBus.ROOF_CLOSED_PERCENT
+        // Nothing has polled this panel yet - pressed from the grid on a bar that
+        // carries no roof button, say - so ask the car before deciding anything.
+        if (panel.percent == null) read()?.let { panel.observe(it) }
+        val position = panel.percent ?: return ROOF_UNAVAILABLE
+
+        if (panel.motion != RoofMotion.IDLE) {
+            if (!write(CarBus.ROOF_STOP)) return REFUSED
+            panel.stopped()
+            return "$label stopped at $position%"
+        }
+
+        val opening = position <= CarBus.ROOF_CLOSED_PERCENT
         val target = if (opening) CarBus.ROOF_OPEN_PERCENT else CarBus.ROOF_CLOSED_PERCENT
         if (!write(target)) return REFUSED
+        panel.commanded(target)
         return if (opening) "$label opening" else "$label closing"
     }
 

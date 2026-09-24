@@ -6,6 +6,99 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.example.esmerui.launcher.NavAction
 
+/** What a roof panel is doing, which is what decides its button's next press. */
+enum class RoofMotion { IDLE, OPENING, CLOSING }
+
+/**
+ * One roof panel's position and whether it is travelling.
+ *
+ * The travel matters as much as the position, because the button is a three-way
+ * press rather than a toggle: start it, stop it where it is, send it back. That
+ * is how the overhead switch behaves, and stopping part-way is the only way to
+ * leave the glass cracked open - as well as the thing a hand reaches for when the
+ * panel is going somewhere it should not.
+ *
+ * Motion is set the moment a command goes out rather than waiting for the car to
+ * report movement: the second press of a double-tap arrives long before the first
+ * one has moved anything, and it still has to mean "stop". It is also inferred
+ * from the readings, so a panel started on the overhead switch is followed too.
+ */
+class RoofPanel {
+
+    @Volatile
+    var percent: Int? = null
+        private set
+
+    @Volatile
+    var motion: RoofMotion = RoofMotion.IDLE
+        private set
+
+    /** Where we last sent it, cleared once it arrives or is stopped. */
+    @Volatile
+    private var target: Int? = null
+
+    /** When the reading last moved, for noticing that travel has finished. */
+    @Volatile
+    private var changedAt = 0L
+
+    /** When travel began, so the pause before the motor picks up is not a stall. */
+    @Volatile
+    private var startedAt = 0L
+
+    val isOpen: Boolean get() = (percent ?: 0) > 0
+
+    /** Takes the car's own reading and works out whether the panel is still moving. */
+    fun observe(reading: Int) {
+        val now = SystemClock.elapsedRealtime()
+        val previous = percent
+        percent = reading
+
+        if (previous != null && reading != previous) {
+            changedAt = now
+            if (motion == RoofMotion.IDLE) {
+                // Moving without us having asked: the overhead switch. Follow it, so
+                // a press still means "stop" rather than starting a second move.
+                motion = if (reading > previous) RoofMotion.OPENING else RoofMotion.CLOSING
+                startedAt = now
+            }
+        }
+
+        if (motion == RoofMotion.IDLE) return
+
+        val arrived = reading == target ||
+            (motion == RoofMotion.OPENING && reading >= CarBus.ROOF_OPEN_PERCENT) ||
+            (motion == RoofMotion.CLOSING && reading <= CarBus.ROOF_CLOSED_PERCENT)
+        // Gone quiet part-way: an obstacle, or someone else's stop. Either way it is
+        // no longer moving, so the next press should start it rather than stop it.
+        val stalled = now - startedAt > START_GRACE_MS && now - changedAt > STALL_MS
+        if (arrived || stalled) settle()
+    }
+
+    /** Records a move we have just sent, before the car has had time to react. */
+    fun commanded(to: Int) {
+        val now = SystemClock.elapsedRealtime()
+        target = to
+        startedAt = now
+        changedAt = now
+        motion = if (to > (percent ?: 0)) RoofMotion.OPENING else RoofMotion.CLOSING
+    }
+
+    fun stopped() = settle()
+
+    private fun settle() {
+        motion = RoofMotion.IDLE
+        target = null
+    }
+
+    private companion object {
+        /** A panel takes a moment to start; that pause is not a stall. */
+        const val START_GRACE_MS = 3_000L
+
+        /** The poll runs once a second, so three quiet passes means it has stopped. */
+        const val STALL_MS = 3_000L
+    }
+}
+
 /**
  * Cached vehicle state for the bar's live readouts.
  *
@@ -136,19 +229,18 @@ object CarStatus {
     var sunshadeFitted: Boolean? = null
 
     /**
-     * How far each panel is open, 0..100.
+     * The glass and the blind, each tracking its own position and travel.
      *
-     * Deliberately never held optimistically, unlike every other control here. A
-     * roof takes several seconds to travel and the poll is the only thing that
-     * shows it moving, so pinning the number to the commanded value after a press
-     * would hide the one part worth watching - and would read 100% while the glass
-     * was still at 30.
+     * The percentage is never held optimistically, unlike every other control
+     * here. A panel takes several seconds to travel and the poll is the only thing
+     * that shows it moving, so pinning the number to the commanded value would
+     * hide the one part worth watching - and would read 100% with the glass still
+     * at 30. What *is* held is the motion, which a press needs to know about
+     * before the car has reported anything.
      */
-    @Volatile
-    var sunroofPercent: Int? = null
+    val sunroof = RoofPanel()
 
-    @Volatile
-    var sunshadePercent: Int? = null
+    val sunshade = RoofPanel()
 
     /**
      * Safety net for a pending write that the car never confirms - a refused command
@@ -322,8 +414,8 @@ object CarStatus {
         if (sunshadeFitted == null) sunshadeFitted = CarBus.sunshadeFitted()
         if (!roofWanted) return
 
-        CarBus.sunroofPercent()?.let { sunroofPercent = it }
-        CarBus.sunshadePercent()?.let { sunshadePercent = it }
+        CarBus.sunroofPercent()?.let { sunroof.observe(it) }
+        CarBus.sunshadePercent()?.let { sunshade.observe(it) }
     }
 
     /** The HUD's switches and levels, read only while something is showing them. */
@@ -383,12 +475,18 @@ object CarStatus {
         else -> ""
     }
 
-    /** How far one panel is open, or null before the first poll has landed. */
-    fun roofPercent(action: NavAction): Int? = when (action) {
-        NavAction.SUNROOF -> sunroofPercent
-        NavAction.SUNSHADE -> sunshadePercent
+    fun roofPanel(action: NavAction): RoofPanel? = when (action) {
+        NavAction.SUNROOF -> sunroof
+        NavAction.SUNSHADE -> sunshade
         else -> null
     }
+
+    /** How far one panel is open, or null before the first poll has landed. */
+    fun roofPercent(action: NavAction): Int? = roofPanel(action)?.percent
+
+    /** Whether one panel is travelling, which is what makes a press mean "stop". */
+    fun roofMoving(action: NavAction): Boolean =
+        roofPanel(action)?.motion?.let { it != RoofMotion.IDLE } ?: false
 
     /** Whether the car has the panel this button drives; null while unknown. */
     fun roofFitted(action: NavAction): Boolean? = when (action) {
