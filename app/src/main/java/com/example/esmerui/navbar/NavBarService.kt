@@ -249,6 +249,13 @@ class NavBarService : Service() {
             NavAction.from(intent.getStringExtra(EXTRA_ACTION))?.let { perform(it) }
             return START_STICKY
         }
+        // A different app came forward and wants a different edge reserved. Only the
+        // reservation changes; rebuilding the bars for an app switch would throw away
+        // every view and every readout several times a minute.
+        if (intent?.action == ACTION_RESERVE) {
+            reserveEdges()
+            return START_STICKY
+        }
         rebuild()
         return START_STICKY
     }
@@ -365,6 +372,36 @@ class NavBarService : Service() {
             return
         }
         SystemBarController.apply(this, wantNav, wantStatus)
+    }
+
+    /**
+     * Re-reserves the screen edges and moves the bars to match.
+     *
+     * A docked bar is placed in the overscan frame rather than the screen, so its
+     * own coordinates shift whenever the reservation does - leave them and the bar
+     * lands inside the app area it just made room for.
+     */
+    private fun reserveEdges() {
+        if (barViews.isEmpty()) return
+        val before = intArrayOf(
+            OverscanController.appliedLeft,
+            OverscanController.appliedTop,
+            OverscanController.appliedRight,
+            OverscanController.appliedBottom,
+        )
+        overscanApplied = OverscanController.sync(this)
+        val after = intArrayOf(
+            OverscanController.appliedLeft,
+            OverscanController.appliedTop,
+            OverscanController.appliedRight,
+            OverscanController.appliedBottom,
+        )
+        if (before.contentEquals(after)) return
+
+        settings.renderableNavBars.forEach { config ->
+            val view = barViews[config.position] ?: return@forEach
+            runCatching { windowManager.updateViewLayout(view, layoutParams(config)) }
+        }
     }
 
     private fun removeBars() {
@@ -1814,7 +1851,17 @@ class NavBarService : Service() {
 
         const val ACTION_STOP = "com.example.esmerui.NAVBAR_STOP"
         const val ACTION_PERFORM = "com.example.esmerui.NAVBAR_PERFORM"
+        const val ACTION_RESERVE = "com.example.esmerui.NAVBAR_RESERVE"
         const val EXTRA_ACTION = "action"
+
+        /** Asks the bar to re-reserve the edges for whatever is now in front. */
+        fun reserveEdges(context: Context) {
+            runCatching {
+                context.startService(
+                    Intent(context, NavBarService::class.java).setAction(ACTION_RESERVE)
+                )
+            }
+        }
 
         /** Runs a bar action from elsewhere in the app - the home grid, chiefly. */
         fun perform(context: Context, action: NavAction) {

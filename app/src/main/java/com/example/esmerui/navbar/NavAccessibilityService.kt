@@ -24,8 +24,17 @@ class NavAccessibilityService : AccessibilityService() {
         super.onDestroy()
     }
 
-    // The bar drives the service; we do not consume events.
-    override fun onAccessibilityEvent(event: AccessibilityEvent?) = Unit
+    /**
+     * The bar drives this service for Back and Recents; the one thing it listens
+     * for is which app came forward, because how much screen edge to hold back
+     * depends on how that app lays itself out. See [OverscanController].
+     */
+    override fun onAccessibilityEvent(event: AccessibilityEvent?) {
+        if (event?.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED) return
+        if (OverscanController.onForeground(event.packageName?.toString())) {
+            NavBarService.reserveEdges(this)
+        }
+    }
 
     override fun onInterrupt() = Unit
 

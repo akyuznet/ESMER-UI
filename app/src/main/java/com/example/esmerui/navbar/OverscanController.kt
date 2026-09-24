@@ -37,6 +37,53 @@ object OverscanController {
     var active by mutableStateOf(false)
         private set
 
+    /**
+     * Apps that lay out against the *stable* insets, and so already hold themselves
+     * clear of the strips the head unit's own bars would have occupied.
+     *
+     * Reserving those strips again for them books the edge twice - overscan is
+     * added to the stable insets rather than merged with them - and the second
+     * helping shows as a band of the app's own background between it and our bar:
+     * Waze's map stopping short, Android Auto's a strip of grey. Everything else
+     * lays out against the content insets, sees nothing reserved on an edge whose
+     * system bar is hidden, and draws straight under us.
+     *
+     * A list, because an app cannot be asked which insets it honours. These were
+     * each measured on the unit, one screenshot per setting.
+     */
+    private val STABLE_INSET_APPS = setOf(
+        "com.waze",
+        "com.byd.androidauto",
+        "com.google.android.projection.gearhead",
+    )
+
+    /**
+     * Packages that come forward without being the app you are looking at - a
+     * dialog, a toast, our own bars. Taking these as the foreground would flip the
+     * reservation underneath whatever is really on screen.
+     */
+    private val TRANSIENT_PACKAGES = setOf(
+        "android",
+        "com.android.systemui",
+        "com.example.esmerui",
+    )
+
+    @Volatile
+    private var foreground: String? = null
+
+    private fun wantsReduced(pkg: String?): Boolean = pkg != null && pkg in STABLE_INSET_APPS
+
+    /**
+     * Records the app that just came forward, and answers whether the reservation
+     * it wants differs from the one in force - which is the caller's cue to re-sync.
+     */
+    fun onForeground(pkg: String?): Boolean {
+        if (pkg == null || pkg in TRANSIENT_PACKAGES || pkg == foreground) return false
+        val before = wantsReduced(foreground)
+        foreground = pkg
+        return wantsReduced(pkg) != before
+    }
+
     /** The overscan currently in force, so bars can convert screen to frame coords. */
     var appliedLeft = 0
         private set
@@ -117,7 +164,8 @@ object OverscanController {
          * the size of the bar the head unit is no longer drawing. Subtracting is
          * the other side of that trade, and leaves most apps underlapped.
          */
-        val discount = if (settings.navReserveFullBars) 0 else 1
+        val reserveFull = settings.navReserveFullBars && !wantsReduced(foreground)
+        val discount = if (reserveFull) 0 else 1
 
         val left = reserved(NavPosition.LEFT)
         val right = reserved(NavPosition.RIGHT)
