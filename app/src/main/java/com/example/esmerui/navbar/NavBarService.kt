@@ -337,8 +337,11 @@ class NavBarService : Service() {
         }
 
         configs.forEach { config ->
-            val view = buildBar(config)
-            runCatching { windowManager.addView(view, layoutParams(config)) }
+            // A folded bottom bar is drawn as its restore tab, nothing else.
+            val folded = config.position == NavPosition.BOTTOM && settings.navBottomCollapsed
+            val view = if (folded) restoreTab(config) else buildBar(config)
+            val params = if (folded) tabParams() else layoutParams(config)
+            runCatching { windowManager.addView(view, params) }
                 .onSuccess { barViews[config.position] = view }
                 .onFailure {
                     Toast.makeText(
@@ -443,7 +446,9 @@ class NavBarService : Service() {
 
         settings.renderableNavBars.forEach { config ->
             val view = barViews[config.position] ?: return@forEach
-            runCatching { windowManager.updateViewLayout(view, layoutParams(config)) }
+            val folded = config.position == NavPosition.BOTTOM && settings.navBottomCollapsed
+            val params = if (folded) tabParams() else layoutParams(config)
+            runCatching { windowManager.updateViewLayout(view, params) }
         }
     }
 
@@ -819,10 +824,68 @@ class NavBarService : Service() {
     /** How much of an edge a full-width bar there claims; a pill claims nothing. */
     private fun edgeReserved(position: NavPosition): Int {
         val bar = settings.navBar(position)
-        return if (bar.isRenderable && bar.layout == NavLayout.FULL_WIDTH) {
-            dockedThickness(position)
-        } else {
-            0
+        return when {
+            !(bar.isRenderable && bar.layout == NavLayout.FULL_WIDTH) -> 0
+            // Folded: only the restore tab is left in the corner, and the side bar
+            // stops above it so the tab is never buried under the last button.
+            position == NavPosition.BOTTOM && settings.navBottomCollapsed -> dp(TAB_HEIGHT_DP)
+            else -> dockedThickness(position)
+        }
+    }
+
+    /**
+     * Folds the bottom bar away or brings it back. A rebuild is the cheap answer
+     * here: this happens on a deliberate press, not on a timer, and it is the one
+     * path that already re-reserves the edges, re-places the side bars and
+     * repaints the launcher's own padding together.
+     */
+    private fun setBottomCollapsed(collapsed: Boolean) {
+        if (settings.navBottomCollapsed == collapsed) return
+        settings.navBottomCollapsed = collapsed
+        rebuild()
+    }
+
+    /**
+     * The restore tab: what is left of the bottom bar once folded. A single small
+     * chevron in the bottom-right corner, kept the same width as the right bar so
+     * the two read as one edge, and as thin as a finger still finds.
+     */
+    private fun restoreTab(config: NavBarConfig): View {
+        val handle = ImageView(this).apply {
+            setImageResource(R.drawable.ic_bar_expand)
+            setColorFilter(CAPTION_COLOR)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val pad = dp(4)
+            setPadding(pad, pad, pad, pad)
+            contentDescription = "Show bar"
+            isClickable = true
+            setOnClickListener { setBottomCollapsed(false) }
+        }
+        return LinearLayout(this).apply {
+            gravity = Gravity.CENTER
+            background = GradientDrawable().apply {
+                setColor(Color.parseColor("#FF000000"))
+                cornerRadii = floatArrayOf(dp(8).toFloat(), dp(8).toFloat(), 0f, 0f, 0f, 0f, 0f, 0f)
+            }
+            addView(handle, LinearLayout.LayoutParams(dp(TAB_WIDTH_DP), dp(TAB_HEIGHT_DP)))
+        }
+    }
+
+    /** Places the restore tab in the bottom-right corner, in the overscan frame like a bar. */
+    private fun tabParams(): WindowManager.LayoutParams {
+        val screen = realScreenSize()
+        val width = dp(TAB_WIDTH_DP)
+        val height = dp(TAB_HEIGHT_DP)
+        return WindowManager.LayoutParams(width, height, 0, 0, 0).apply {
+            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
+                WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
+                WindowManager.LayoutParams.FLAG_LAYOUT_IN_OVERSCAN
+            format = PixelFormat.TRANSLUCENT
+            gravity = Gravity.TOP or Gravity.START
+            x = screen.x - width - OverscanController.appliedLeft
+            y = screen.y - systemBottomInset() - height - OverscanController.appliedTop
         }
     }
 
@@ -920,6 +983,26 @@ class NavBarService : Service() {
                 )
             }
             bar.addView(button)
+        }
+
+        // The bottom bar carries a way to fold itself away, at the far right where
+        // the hand already goes for the app buttons. Fixed width, outside the even
+        // spread above, and drawn quietly: it is a handle, not another control.
+        if (fullWidth && position == NavPosition.BOTTOM) {
+            val handle = ImageView(this).apply {
+                setImageResource(R.drawable.ic_bar_collapse)
+                setColorFilter(CAPTION_COLOR)
+                scaleType = ImageView.ScaleType.FIT_CENTER
+                val pad = dp(3)
+                setPadding(pad, dp(12), pad, dp(12))
+                contentDescription = "Hide bar"
+                isClickable = true
+                setOnClickListener { setBottomCollapsed(true) }
+            }
+            bar.addView(
+                handle,
+                LinearLayout.LayoutParams(dp(HANDLE_WIDTH_DP), LinearLayout.LayoutParams.MATCH_PARENT),
+            )
         }
 
         return bar
@@ -1891,6 +1974,16 @@ class NavBarService : Service() {
          * it comes forward; answering each write would be a tug of war.
          */
         private const val POLICY_SETTLE_MS = 800L
+
+        /** The fold handle at the end of the bottom bar: narrow, but still a target. */
+        private const val HANDLE_WIDTH_DP = 26
+
+        /**
+         * The restore tab left in the corner once the bar is folded. Wide enough
+         * to hit, thin enough that the app underneath loses almost nothing.
+         */
+        private const val TAB_WIDTH_DP = 52
+        private const val TAB_HEIGHT_DP = 24
 
         /**
          * The buttons that carry a live percentage, resolved once. [refreshReadouts]

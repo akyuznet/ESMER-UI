@@ -228,6 +228,35 @@ class LauncherSettings private constructor(context: Context) {
             prefs.edit().putBoolean(KEY_NAV_RESERVE_FULL, value).apply()
         }
 
+    private var navBottomCollapsedState by mutableStateOf(
+        prefs.getBoolean(KEY_NAV_BOTTOM_COLLAPSED, false)
+    )
+
+    /**
+     * Whether the bottom bar is folded away to a restore tab in the corner.
+     *
+     * Remembered rather than reset each start, because the bar service now comes
+     * up on every boot and every wake from standby - a fold that lasted only
+     * until the next traffic light would not be worth having. The tab is always
+     * on screen, so there is no way to lose the bar by remembering this.
+     */
+    var navBottomCollapsed: Boolean
+        get() = navBottomCollapsedState
+        set(value) {
+            navBottomCollapsedState = value
+            prefs.edit().putBoolean(KEY_NAV_BOTTOM_COLLAPSED, value).apply()
+        }
+
+    /**
+     * Whether a bar is actually taking its edge right now: configured to draw,
+     * and not folded away. The edge reservation, the launcher's own padding and
+     * the side bars' extent all follow this rather than [NavBarConfig.isRenderable],
+     * which stays true for a folded bar because its tab still has to be drawn.
+     */
+    fun navBarOccupiesEdge(position: NavPosition): Boolean =
+        navBar(position).isRenderable &&
+            !(position == NavPosition.BOTTOM && navBottomCollapsed)
+
     private var checkDefaultState by mutableStateOf(
         prefs.getBoolean(KEY_CHECK_DEFAULT, true)
     )
@@ -424,6 +453,7 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_NAV_HIDE_SYSTEM = "nav_hide_system"
         private const val KEY_NAV_HIDE_STATUS = "nav_hide_status"
         private const val KEY_NAV_RESERVE_FULL = "nav_reserve_full"
+        private const val KEY_NAV_BOTTOM_COLLAPSED = "nav_BOTTOM_collapsed"
         private const val KEY_NAV_SHORTCUTS = "nav_shortcuts"
         private const val KEY_NAV_ACTIONS = "nav_actions"
         private const val DEFAULT_NAV_ACTIONS = "BACK,HOME,RECENTS,APPS"

@@ -150,8 +150,10 @@ object OverscanController {
 
         fun reserved(position: NavPosition): Int {
             val bar = settings.navBar(position)
-            // A floating pill does not span its edge, so nothing needs reserving.
-            if (!(bar.isRenderable && bar.layout == NavLayout.FULL_WIDTH)) return 0
+            // A floating pill does not span its edge, and a folded bar has given
+            // its edge back - its restore tab overlays one corner rather than
+            // reserving a strip.
+            if (!(settings.navBarOccupiesEdge(position) && bar.layout == NavLayout.FULL_WIDTH)) return 0
             val thickness = (bar.thicknessDp * density).toInt()
             // Matches the bar, which grows to cover at least the strip apps hold
             // back - the two have to agree or the app's edge and the bar's edge

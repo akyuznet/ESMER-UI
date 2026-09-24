@@ -110,7 +110,8 @@ private const val RELOAD_SETTLE_MS = 400L
  */
 private fun navInset(settings: LauncherSettings, position: NavPosition, density: Float): Dp {
     val bar = settings.navBar(position)
-    if (!bar.isRenderable) return 0.dp
+    // A folded bar leaves only a tab in the corner, which the grid can sit beside.
+    if (!settings.navBarOccupiesEdge(position)) return 0.dp
     val covered = (OverscanController.reservedPx(position) / density).toInt()
     val uncovered = bar.thicknessDp - covered
     return if (uncovered <= 0) 0.dp else (uncovered + 24).dp
