@@ -107,10 +107,22 @@ object OverscanController {
             return maxOf(thickness, minimum)
         }
 
+        /**
+         * What to take off the top and bottom for the hidden system bar.
+         *
+         * Measured on the unit: overscan is *added* to the stable insets rather
+         * than merging with them. Asking for the bar's whole thickness gives the
+         * content insets every ordinary app lays out against - which is what stops
+         * an app drawing under our bar - but costs a stable-inset app a dead band
+         * the size of the bar the head unit is no longer drawing. Subtracting is
+         * the other side of that trade, and leaves most apps underlapped.
+         */
+        val discount = if (settings.navReserveFullBars) 0 else 1
+
         val left = reserved(NavPosition.LEFT)
         val right = reserved(NavPosition.RIGHT)
-        val top = (reserved(NavPosition.TOP) - reservedTop).coerceAtLeast(0)
-        val bottom = (reserved(NavPosition.BOTTOM) - reservedBottom).coerceAtLeast(0)
+        val top = (reserved(NavPosition.TOP) - reservedTop * discount).coerceAtLeast(0)
+        val bottom = (reserved(NavPosition.BOTTOM) - reservedBottom * discount).coerceAtLeast(0)
 
         val applied = setOverscan(left, top, right, bottom)
         active = applied && (left or top or right or bottom) != 0

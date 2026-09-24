@@ -177,6 +177,9 @@ class LauncherSettings private constructor(context: Context) {
     private var navHideStatusState by mutableStateOf(
         prefs.getBoolean(KEY_NAV_HIDE_STATUS, false)
     )
+    private var navReserveFullState by mutableStateOf(
+        prefs.getBoolean(KEY_NAV_RESERVE_FULL, true)
+    )
     private var navBarsState by mutableStateOf(loadNavBars())
 
     /**
@@ -202,6 +205,27 @@ class LauncherSettings private constructor(context: Context) {
         set(value) {
             navHideStatusState = value
             prefs.edit().putBoolean(KEY_NAV_HIDE_STATUS, value).apply()
+        }
+
+    /**
+     * Reserve each bar's whole thickness from apps, rather than only the part the
+     * head unit's own bars were not already holding back.
+     *
+     * The two cannot both be had. Hiding a system bar does not reclaim the strip it
+     * would have occupied: apps that lay out against the *stable* insets - Android
+     * Auto among them - go on avoiding it either way, and anything reserved here is
+     * added to that, which costs them a dead band the width of the hidden bar.
+     * Apps that lay out against the *content* insets, which is most of them, see
+     * nothing reserved on a hidden edge at all and draw right under our bar.
+     *
+     * On by default, because a control hidden behind an opaque bar is worse than a
+     * margin that is merely wasteful.
+     */
+    var navReserveFullBars: Boolean
+        get() = navReserveFullState
+        set(value) {
+            navReserveFullState = value
+            prefs.edit().putBoolean(KEY_NAV_RESERVE_FULL, value).apply()
         }
 
     private var checkDefaultState by mutableStateOf(
@@ -357,6 +381,7 @@ class LauncherSettings private constructor(context: Context) {
 
         navHideSystemState = prefs.getBoolean(KEY_NAV_HIDE_SYSTEM, false)
         navHideStatusState = prefs.getBoolean(KEY_NAV_HIDE_STATUS, false)
+        navReserveFullState = prefs.getBoolean(KEY_NAV_RESERVE_FULL, true)
         checkDefaultState = prefs.getBoolean(KEY_CHECK_DEFAULT, true)
         navBarsState = loadNavBars()
     }
@@ -398,6 +423,7 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_NAV_THICKNESS = "nav_thickness_dp"
         private const val KEY_NAV_HIDE_SYSTEM = "nav_hide_system"
         private const val KEY_NAV_HIDE_STATUS = "nav_hide_status"
+        private const val KEY_NAV_RESERVE_FULL = "nav_reserve_full"
         private const val KEY_NAV_SHORTCUTS = "nav_shortcuts"
         private const val KEY_NAV_ACTIONS = "nav_actions"
         private const val DEFAULT_NAV_ACTIONS = "BACK,HOME,RECENTS,APPS"

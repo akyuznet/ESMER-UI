@@ -737,6 +737,25 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
         )
 
         Spacer(Modifier.height(8.dp))
+
+        SwitchRow(
+            title = "Keep apps clear of the bars",
+            subtitle = if (settings.navReserveFullBars) {
+                "Apps are held off each bar's full width. Anything that lays out " +
+                    "against the hidden system bars, Android Auto among them, gets " +
+                    "a margin it does not need"
+            } else {
+                "Only the strip the head unit's own bars did not already hold back " +
+                    "is reserved, so most apps draw under ours"
+            },
+            checked = settings.navReserveFullBars,
+            onCheckedChange = {
+                settings.navReserveFullBars = it
+                NavBarService.sync(context)
+            },
+        )
+
+        Spacer(Modifier.height(8.dp))
         Row(
             modifier = Modifier
                 .fillMaxWidth()
