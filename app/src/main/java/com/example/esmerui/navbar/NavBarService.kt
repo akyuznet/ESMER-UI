@@ -337,10 +337,10 @@ class NavBarService : Service() {
         }
 
         configs.forEach { config ->
-            // A folded bottom bar is drawn as its restore tab, nothing else.
-            val folded = config.position == NavPosition.BOTTOM && settings.navBottomCollapsed
+            // A folded bar is drawn as its restore tab, nothing else.
+            val folded = settings.navBarCollapsed(config.position)
             val view = if (folded) restoreTab(config) else buildBar(config)
-            val params = if (folded) tabParams() else layoutParams(config)
+            val params = if (folded) tabParams(config.position) else layoutParams(config)
             runCatching { windowManager.addView(view, params) }
                 .onSuccess { barViews[config.position] = view }
                 .onFailure {
@@ -446,8 +446,8 @@ class NavBarService : Service() {
 
         settings.renderableNavBars.forEach { config ->
             val view = barViews[config.position] ?: return@forEach
-            val folded = config.position == NavPosition.BOTTOM && settings.navBottomCollapsed
-            val params = if (folded) tabParams() else layoutParams(config)
+            val folded = settings.navBarCollapsed(config.position)
+            val params = if (folded) tabParams(config.position) else layoutParams(config)
             runCatching { windowManager.updateViewLayout(view, params) }
         }
     }
@@ -826,56 +826,103 @@ class NavBarService : Service() {
         val bar = settings.navBar(position)
         return when {
             !(bar.isRenderable && bar.layout == NavLayout.FULL_WIDTH) -> 0
-            // Folded: only the restore tab is left in the corner, and the side bar
-            // stops above it so the tab is never buried under the last button.
-            position == NavPosition.BOTTOM && settings.navBottomCollapsed -> dp(TAB_HEIGHT_DP)
+            // Folded: only the restore tab is left in the corner, and the side bars
+            // stop short of it so the tab is never buried under a last button.
+            settings.navBarCollapsed(position) -> dp(TAB_HEIGHT_DP)
             else -> dockedThickness(position)
         }
     }
 
     /**
-     * Folds the bottom bar away or brings it back. A rebuild is the cheap answer
-     * here: this happens on a deliberate press, not on a timer, and it is the one
-     * path that already re-reserves the edges, re-places the side bars and
-     * repaints the launcher's own padding together.
+     * Folds a bar away or brings it back. A rebuild is the cheap answer here:
+     * this happens on a deliberate press, not on a timer, and it is the one path
+     * that already re-reserves the edges, re-places the other bars and repaints
+     * the launcher's own padding together.
      */
-    private fun setBottomCollapsed(collapsed: Boolean) {
-        if (settings.navBottomCollapsed == collapsed) return
-        settings.navBottomCollapsed = collapsed
+    private fun setCollapsed(position: NavPosition, collapsed: Boolean) {
+        if (settings.navBarCollapsed(position) == collapsed) return
+        settings.setNavBarCollapsed(position, collapsed)
         rebuild()
     }
 
     /**
-     * The restore tab: what is left of the bottom bar once folded. A single small
-     * chevron in the bottom-right corner, kept the same width as the right bar so
-     * the two read as one edge, and as thin as a finger still finds.
+     * The chevrons. A handle points into the edge its bar folds towards; the tab
+     * that replaces it points back out, the way the bar will come.
+     */
+    @DrawableRes
+    private fun handleIcon(position: NavPosition): Int = when (position) {
+        NavPosition.BOTTOM -> R.drawable.ic_bar_collapse
+        NavPosition.TOP -> R.drawable.ic_bar_expand
+        NavPosition.RIGHT -> R.drawable.ic_chevron_right
+        NavPosition.LEFT -> R.drawable.ic_chevron_left
+    }
+
+    @DrawableRes
+    private fun tabIcon(position: NavPosition): Int = when (position) {
+        NavPosition.BOTTOM -> R.drawable.ic_bar_expand
+        NavPosition.TOP -> R.drawable.ic_bar_collapse
+        NavPosition.RIGHT -> R.drawable.ic_chevron_left
+        NavPosition.LEFT -> R.drawable.ic_chevron_right
+    }
+
+    /**
+     * The restore tab: what is left of a bar once folded. A single small chevron
+     * hugging the corner at the end the handle was, as thin as a finger still
+     * finds. A horizontal bar's tab lies along its edge; a side bar's stands on
+     * end, and only the corners facing away from the edge are rounded, so the tab
+     * reads as something that grew out of it.
      */
     private fun restoreTab(config: NavBarConfig): View {
+        val position = config.position
         val handle = ImageView(this).apply {
-            setImageResource(R.drawable.ic_bar_expand)
+            setImageResource(tabIcon(position))
             setColorFilter(CAPTION_COLOR)
             scaleType = ImageView.ScaleType.FIT_CENTER
             val pad = dp(4)
             setPadding(pad, pad, pad, pad)
             contentDescription = "Show bar"
             isClickable = true
-            setOnClickListener { setBottomCollapsed(false) }
+            setOnClickListener { setCollapsed(position, false) }
         }
+        val r = dp(8).toFloat()
+        // Radii run top-left, top-right, bottom-right, bottom-left, two values each.
+        val radii = when (position) {
+            NavPosition.BOTTOM -> floatArrayOf(r, r, r, r, 0f, 0f, 0f, 0f)
+            NavPosition.TOP -> floatArrayOf(0f, 0f, 0f, 0f, r, r, r, r)
+            NavPosition.RIGHT -> floatArrayOf(r, r, 0f, 0f, 0f, 0f, r, r)
+            NavPosition.LEFT -> floatArrayOf(0f, 0f, r, r, r, r, 0f, 0f)
+        }
+        val (w, h) = tabSize(position)
         return LinearLayout(this).apply {
             gravity = Gravity.CENTER
             background = GradientDrawable().apply {
                 setColor(Color.parseColor("#FF000000"))
-                cornerRadii = floatArrayOf(dp(8).toFloat(), dp(8).toFloat(), 0f, 0f, 0f, 0f, 0f, 0f)
+                cornerRadii = radii
             }
-            addView(handle, LinearLayout.LayoutParams(dp(TAB_WIDTH_DP), dp(TAB_HEIGHT_DP)))
+            addView(handle, LinearLayout.LayoutParams(w, h))
         }
     }
 
-    /** Places the restore tab in the bottom-right corner, in the overscan frame like a bar. */
-    private fun tabParams(): WindowManager.LayoutParams {
+    /** Along the edge for a horizontal bar, on end for a side bar. */
+    private fun tabSize(position: NavPosition): Pair<Int, Int> =
+        if (position.isHorizontal) dp(TAB_WIDTH_DP) to dp(TAB_HEIGHT_DP)
+        else dp(TAB_HEIGHT_DP) to dp(TAB_WIDTH_DP)
+
+    /**
+     * Places a restore tab at the end of its bar's edge, in the overscan frame
+     * like a bar. The two horizontal bars own the right-hand corners; a side bar's
+     * tab sits just above whatever the bottom edge is holding, bar or tab, so two
+     * folded bars never stack their tabs on the same corner.
+     */
+    private fun tabParams(position: NavPosition): WindowManager.LayoutParams {
         val screen = realScreenSize()
-        val width = dp(TAB_WIDTH_DP)
-        val height = dp(TAB_HEIGHT_DP)
+        val (width, height) = tabSize(position)
+        val screenX = if (position == NavPosition.LEFT) 0 else screen.x - width
+        val screenY = when (position) {
+            NavPosition.TOP -> systemTopInset()
+            NavPosition.BOTTOM -> screen.y - systemBottomInset() - height
+            else -> screen.y - systemBottomInset() - edgeReserved(NavPosition.BOTTOM) - height
+        }
         return WindowManager.LayoutParams(width, height, 0, 0, 0).apply {
             type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
@@ -884,8 +931,8 @@ class NavBarService : Service() {
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_OVERSCAN
             format = PixelFormat.TRANSLUCENT
             gravity = Gravity.TOP or Gravity.START
-            x = screen.x - width - OverscanController.appliedLeft
-            y = screen.y - systemBottomInset() - height - OverscanController.appliedTop
+            x = screenX - OverscanController.appliedLeft
+            y = screenY - OverscanController.appliedTop
         }
     }
 
@@ -985,23 +1032,30 @@ class NavBarService : Service() {
             bar.addView(button)
         }
 
-        // The bottom bar carries a way to fold itself away, at the far right where
-        // the hand already goes for the app buttons. Fixed width, outside the even
-        // spread above, and drawn quietly: it is a handle, not another control.
-        if (fullWidth && position == NavPosition.BOTTOM) {
+        // Every docked bar carries a way to fold itself away, at its far end - the
+        // right end of a horizontal bar, the bottom of a side bar. Fixed size,
+        // outside the even spread above, and drawn quietly: a handle, not another
+        // control.
+        if (fullWidth) {
+            val along = dp(3)
+            val across = dp(12)
             val handle = ImageView(this).apply {
-                setImageResource(R.drawable.ic_bar_collapse)
+                setImageResource(handleIcon(position))
                 setColorFilter(CAPTION_COLOR)
                 scaleType = ImageView.ScaleType.FIT_CENTER
-                val pad = dp(3)
-                setPadding(pad, dp(12), pad, dp(12))
+                if (position.isHorizontal) setPadding(along, across, along, across)
+                else setPadding(across, along, across, along)
                 contentDescription = "Hide bar"
                 isClickable = true
-                setOnClickListener { setBottomCollapsed(true) }
+                setOnClickListener { setCollapsed(position, true) }
             }
             bar.addView(
                 handle,
-                LinearLayout.LayoutParams(dp(HANDLE_WIDTH_DP), LinearLayout.LayoutParams.MATCH_PARENT),
+                if (position.isHorizontal) {
+                    LinearLayout.LayoutParams(dp(HANDLE_WIDTH_DP), LinearLayout.LayoutParams.MATCH_PARENT)
+                } else {
+                    LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, dp(HANDLE_WIDTH_DP))
+                },
             )
         }
 
@@ -1975,7 +2029,7 @@ class NavBarService : Service() {
          */
         private const val POLICY_SETTLE_MS = 800L
 
-        /** The fold handle at the end of the bottom bar: narrow, but still a target. */
+        /** The fold handle at the end of a bar: narrow, but still a target. */
         private const val HANDLE_WIDTH_DP = 26
 
         /**

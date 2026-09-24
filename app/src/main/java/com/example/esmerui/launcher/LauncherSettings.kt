@@ -228,24 +228,28 @@ class LauncherSettings private constructor(context: Context) {
             prefs.edit().putBoolean(KEY_NAV_RESERVE_FULL, value).apply()
         }
 
-    private var navBottomCollapsedState by mutableStateOf(
-        prefs.getBoolean(KEY_NAV_BOTTOM_COLLAPSED, false)
-    )
+    private var navCollapsedState by mutableStateOf(loadCollapsed())
+
+    private fun loadCollapsed(): Set<NavPosition> =
+        NavPosition.entries.filterTo(mutableSetOf()) {
+            prefs.getBoolean(navKey(it, SUFFIX_COLLAPSED), false)
+        }
+
+    /** Whether this bar is folded away to a restore tab in its corner. */
+    fun navBarCollapsed(position: NavPosition): Boolean = position in navCollapsedState
 
     /**
-     * Whether the bottom bar is folded away to a restore tab in the corner.
+     * Folds a bar away or brings it back.
      *
      * Remembered rather than reset each start, because the bar service now comes
      * up on every boot and every wake from standby - a fold that lasted only
      * until the next traffic light would not be worth having. The tab is always
-     * on screen, so there is no way to lose the bar by remembering this.
+     * on screen, so there is no way to lose a bar by remembering this.
      */
-    var navBottomCollapsed: Boolean
-        get() = navBottomCollapsedState
-        set(value) {
-            navBottomCollapsedState = value
-            prefs.edit().putBoolean(KEY_NAV_BOTTOM_COLLAPSED, value).apply()
-        }
+    fun setNavBarCollapsed(position: NavPosition, collapsed: Boolean) {
+        navCollapsedState = if (collapsed) navCollapsedState + position else navCollapsedState - position
+        prefs.edit().putBoolean(navKey(position, SUFFIX_COLLAPSED), collapsed).apply()
+    }
 
     /**
      * Whether a bar is actually taking its edge right now: configured to draw,
@@ -254,8 +258,7 @@ class LauncherSettings private constructor(context: Context) {
      * which stays true for a folded bar because its tab still has to be drawn.
      */
     fun navBarOccupiesEdge(position: NavPosition): Boolean =
-        navBar(position).isRenderable &&
-            !(position == NavPosition.BOTTOM && navBottomCollapsed)
+        navBar(position).isRenderable && !navBarCollapsed(position)
 
     private var checkDefaultState by mutableStateOf(
         prefs.getBoolean(KEY_CHECK_DEFAULT, true)
@@ -411,6 +414,7 @@ class LauncherSettings private constructor(context: Context) {
         navHideSystemState = prefs.getBoolean(KEY_NAV_HIDE_SYSTEM, false)
         navHideStatusState = prefs.getBoolean(KEY_NAV_HIDE_STATUS, false)
         navReserveFullState = prefs.getBoolean(KEY_NAV_RESERVE_FULL, true)
+        navCollapsedState = loadCollapsed()
         checkDefaultState = prefs.getBoolean(KEY_CHECK_DEFAULT, true)
         navBarsState = loadNavBars()
     }
@@ -453,7 +457,7 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_NAV_HIDE_SYSTEM = "nav_hide_system"
         private const val KEY_NAV_HIDE_STATUS = "nav_hide_status"
         private const val KEY_NAV_RESERVE_FULL = "nav_reserve_full"
-        private const val KEY_NAV_BOTTOM_COLLAPSED = "nav_BOTTOM_collapsed"
+        private const val SUFFIX_COLLAPSED = "collapsed"
         private const val KEY_NAV_SHORTCUTS = "nav_shortcuts"
         private const val KEY_NAV_ACTIONS = "nav_actions"
         private const val DEFAULT_NAV_ACTIONS = "BACK,HOME,RECENTS,APPS"
