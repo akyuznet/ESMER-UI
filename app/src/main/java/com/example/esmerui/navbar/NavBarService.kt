@@ -484,11 +484,11 @@ class NavBarService : Service() {
         setCaption(NavAction.HUD_HEIGHT_GROUP, hud)
 
         // Each roof panel follows itself rather than a shared switch: one can be
-        // open with the other shut, so they are coloured one at a time.
+        // open with the other shut, so they are coloured one at a time. No caption
+        // to repaint - the compact cell carries the glyph and the number only.
         PERCENT_ACTIONS.forEach { panel ->
             val open = NavActionState.isActive(panel)
             setReadout(panel, CarStatus.roofLabel(panel), if (open) ICON_ACTIVE_COLOR else ICON_COLOR)
-            setCaption(panel, open)
         }
 
         refreshInfoCells()
@@ -819,8 +819,9 @@ class NavBarService : Service() {
                     item.action.isGroup -> stepperGroup(item.action, config) to 2f
                     // Readouts carry text beside the icon, so they need the room.
                     item.action.isReadout -> infoCell(item.action, config) to 2f
-                    // A percentage beside the glyph needs the same room a readout does.
-                    item.action.isPercent -> percentButton(item.action, config) to 2f
+                    // One slot like any other button, with the reading stacked
+                    // under the glyph rather than set beside it.
+                    item.action.isPercent -> percentButton(item.action, config) to 1f
                     else -> actionButton(item.action, config) to 1f
                 }
 
@@ -857,64 +858,51 @@ class NavBarService : Service() {
     }
 
     /**
-     * A roof panel: its glyph, how far it is open, and its name underneath.
+     * A roof panel: its glyph with how far it is open tucked under it.
      *
-     * Built from the same parts as a stepper minus the +/-, because it is the same
-     * shape of thing - a live number with a label - except that the press is on the
-     * whole cell rather than on a pair of arrows. Registered in all three maps so
-     * the poll repaints the icon's tint, the percentage and the caption together;
-     * a cell that lit green while still reading 0% would be worse than no colour.
+     * Occupies one slot, like a plain button rather than like a readout. Set
+     * side by side with its name under the number it took two, which on a bar
+     * already carrying twenty items cost a fifth of the width for two of them.
+     * Stacking drops the name - the two glyphs are a sun through an opening and a
+     * drawn blind, which tells them apart without a caption - and spends the
+     * height on the number instead.
+     *
+     * The icon takes whatever the reading leaves, so a thinner bar shrinks the
+     * glyph rather than clipping the percentage off the bottom edge.
      */
     private fun percentButton(action: NavAction, config: NavBarConfig): View {
-        val size = dp((config.iconSizeDp * 0.72f).toInt().coerceAtLeast(14))
+        val room = (config.thicknessDp - BAR_PADDING_DP * 2).coerceAtLeast(20)
+        val textSp = (config.iconSizeDp * 0.26f).coerceIn(9f, 15f)
+        val iconDp = (room - textSp * LINE_HEIGHT_FACTOR)
+            .coerceIn(12f, config.iconSizeDp * 0.62f)
+
         val icon = ImageView(this).apply {
             setImageResource(NavActionIcons.current(action))
             setColorFilter(ICON_COLOR)
             scaleType = ImageView.ScaleType.FIT_CENTER
-            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = dp(5) }
+            layoutParams = LinearLayout.LayoutParams(dp(iconDp.toInt()), dp(iconDp.toInt()))
         }
         stateButtons.track(action, StateButton(icon))
 
         val readout = TextView(this).apply {
             text = CarStatus.roofLabel(action)
             setTextColor(ICON_COLOR)
-            textSize = (config.iconSizeDp * 0.42f).coerceIn(12f, 24f)
+            textSize = textSp
             includeFontPadding = false
             gravity = Gravity.CENTER
             maxLines = 1
-            // Room for "100%", so the caption under it does not shuffle sideways
-            // as the panel travels through the two- and three-digit readings.
-            minWidth = dp(config.iconSizeDp)
         }
         groupReadouts.track(action, readout)
 
-        val caption = TextView(this).apply {
-            text = action.stepperCaption
-            setTextColor(CAPTION_COLOR)
-            textSize = (config.iconSizeDp * 0.28f).coerceIn(9f, 16f)
-            gravity = Gravity.CENTER
-            maxLines = 1
-            letterSpacing = 0.08f
-            includeFontPadding = false
-        }
-        groupCaptions.track(action, caption)
-
-        val valueColumn = LinearLayout(this).apply {
+        return LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            addView(readout)
-            addView(caption)
-        }
-
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = Gravity.CENTER
-            val pad = dp(6)
+            val pad = dp(2)
             setPadding(pad, 0, pad, 0)
             isClickable = true
             setOnClickListener { perform(action) }
             addView(icon)
-            addView(valueColumn)
+            addView(readout)
         }
     }
 
