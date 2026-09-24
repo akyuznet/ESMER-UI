@@ -147,6 +147,11 @@ class NavBarService : Service() {
         shown.any { it.isHud } || stateButtons.keys.any { it.isHud } ||
             groupReadouts.keys.any { it.isHud }
 
+    /** The same gate for the roof panels, whose percentages cost two reads a poll. */
+    private fun roofShown(shown: Set<NavAction>): Boolean =
+        shown.any { it.isRoof } || stateButtons.keys.any { it.isRoof } ||
+            groupReadouts.keys.any { it.isRoof }
+
     private val statusPoll = object : Runnable {
         override fun run() {
             // The home grid can be showing readouts with no bar up at all, so a
@@ -154,6 +159,7 @@ class NavBarService : Service() {
             val wanted = shownActions()
             CarInfo.shown = wanted
             CarStatus.hudWanted = hudShown(wanted)
+            CarStatus.roofWanted = roofShown(wanted)
             if (groupReadouts.isEmpty() && stateButtons.isEmpty() &&
                 infoCells.isEmpty() && wanted.isEmpty()
             ) {
@@ -304,6 +310,7 @@ class NavBarService : Service() {
         val wanted = shownActions()
         CarInfo.shown = wanted
         CarStatus.hudWanted = hudShown(wanted)
+        CarStatus.roofWanted = roofShown(wanted)
         if (groupReadouts.isNotEmpty() || stateButtons.isNotEmpty() ||
             infoCells.isNotEmpty() || wanted.isNotEmpty()
         ) {
@@ -475,6 +482,14 @@ class NavBarService : Service() {
         setCaption(NavAction.FAN_GROUP, climate)
         setCaption(NavAction.HUD_BRIGHTNESS_GROUP, hud)
         setCaption(NavAction.HUD_HEIGHT_GROUP, hud)
+
+        // Each roof panel follows itself rather than a shared switch: one can be
+        // open with the other shut, so they are coloured one at a time.
+        PERCENT_ACTIONS.forEach { panel ->
+            val open = NavActionState.isActive(panel)
+            setReadout(panel, CarStatus.roofLabel(panel), if (open) ICON_ACTIVE_COLOR else ICON_COLOR)
+            setCaption(panel, open)
+        }
 
         refreshInfoCells()
     }
@@ -804,6 +819,8 @@ class NavBarService : Service() {
                     item.action.isGroup -> stepperGroup(item.action, config) to 2f
                     // Readouts carry text beside the icon, so they need the room.
                     item.action.isReadout -> infoCell(item.action, config) to 2f
+                    // A percentage beside the glyph needs the same room a readout does.
+                    item.action.isPercent -> percentButton(item.action, config) to 2f
                     else -> actionButton(item.action, config) to 1f
                 }
 
@@ -837,6 +854,68 @@ class NavBarService : Service() {
             stateButtons.track(action, StateButton(button as ImageView))
         }
         return button
+    }
+
+    /**
+     * A roof panel: its glyph, how far it is open, and its name underneath.
+     *
+     * Built from the same parts as a stepper minus the +/-, because it is the same
+     * shape of thing - a live number with a label - except that the press is on the
+     * whole cell rather than on a pair of arrows. Registered in all three maps so
+     * the poll repaints the icon's tint, the percentage and the caption together;
+     * a cell that lit green while still reading 0% would be worse than no colour.
+     */
+    private fun percentButton(action: NavAction, config: NavBarConfig): View {
+        val size = dp((config.iconSizeDp * 0.72f).toInt().coerceAtLeast(14))
+        val icon = ImageView(this).apply {
+            setImageResource(NavActionIcons.current(action))
+            setColorFilter(ICON_COLOR)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            layoutParams = LinearLayout.LayoutParams(size, size).apply { marginEnd = dp(5) }
+        }
+        stateButtons.track(action, StateButton(icon))
+
+        val readout = TextView(this).apply {
+            text = CarStatus.roofLabel(action)
+            setTextColor(ICON_COLOR)
+            textSize = (config.iconSizeDp * 0.42f).coerceIn(12f, 24f)
+            includeFontPadding = false
+            gravity = Gravity.CENTER
+            maxLines = 1
+            // Room for "100%", so the caption under it does not shuffle sideways
+            // as the panel travels through the two- and three-digit readings.
+            minWidth = dp(config.iconSizeDp)
+        }
+        groupReadouts.track(action, readout)
+
+        val caption = TextView(this).apply {
+            text = action.stepperCaption
+            setTextColor(CAPTION_COLOR)
+            textSize = (config.iconSizeDp * 0.28f).coerceIn(9f, 16f)
+            gravity = Gravity.CENTER
+            maxLines = 1
+            letterSpacing = 0.08f
+            includeFontPadding = false
+        }
+        groupCaptions.track(action, caption)
+
+        val valueColumn = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            addView(readout)
+            addView(caption)
+        }
+
+        return LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = Gravity.CENTER
+            val pad = dp(6)
+            setPadding(pad, 0, pad, 0)
+            isClickable = true
+            setOnClickListener { perform(action) }
+            addView(icon)
+            addView(valueColumn)
+        }
     }
 
     /**
@@ -1441,6 +1520,9 @@ class NavBarService : Service() {
             NavAction.HUD_HEIGHT_UP -> car { CarControl.nudgeHudHeight(1) }
             NavAction.HUD_HEIGHT_DOWN -> car { CarControl.nudgeHudHeight(-1) }
 
+            NavAction.SUNROOF -> car { CarControl.toggleSunroof() }
+            NavAction.SUNSHADE -> car { CarControl.toggleSunshade() }
+
             // Groups build their own +/- buttons; they are never "pressed" directly,
             // and a readout has nothing to press at all.
             NavAction.TEMP_GROUP, NavAction.FAN_GROUP,
@@ -1734,6 +1816,13 @@ class NavBarService : Service() {
 
         /** Long enough to register, short enough not to lag a rapid step. */
         private const val FLASH_MS = 180L
+
+        /**
+         * The buttons that carry a live percentage, resolved once. [refreshReadouts]
+         * runs every second across four overlay windows, and filtering the action
+         * list there would allocate on that path for a set that never changes.
+         */
+        private val PERCENT_ACTIONS = NavAction.entries.filter { it.isPercent }
 
         const val ACTION_STOP = "com.example.esmerui.NAVBAR_STOP"
         const val ACTION_PERFORM = "com.example.esmerui.NAVBAR_PERFORM"

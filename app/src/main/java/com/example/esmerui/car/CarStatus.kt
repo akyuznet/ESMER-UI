@@ -122,6 +122,34 @@ object CarStatus {
 
     private const val HUD_HOLD_MS = 3_000L
 
+    // ---- Roof --------------------------------------------------------------
+
+    /** Set by the bar while a roof control is on screen, exactly like [hudWanted]. */
+    @Volatile
+    var roofWanted: Boolean = false
+
+    /** Null until the bus has answered once; false on a car without that panel. */
+    @Volatile
+    var sunroofFitted: Boolean? = null
+
+    @Volatile
+    var sunshadeFitted: Boolean? = null
+
+    /**
+     * How far each panel is open, 0..100.
+     *
+     * Deliberately never held optimistically, unlike every other control here. A
+     * roof takes several seconds to travel and the poll is the only thing that
+     * shows it moving, so pinning the number to the commanded value after a press
+     * would hide the one part worth watching - and would read 100% while the glass
+     * was still at 30.
+     */
+    @Volatile
+    var sunroofPercent: Int? = null
+
+    @Volatile
+    var sunshadePercent: Int? = null
+
     /**
      * Safety net for a pending write that the car never confirms - a refused command
      * or a value the car silently clamped. Past this the server's word wins.
@@ -280,6 +308,22 @@ object CarStatus {
         CarBus.seatLevel(driver = false, heating = false)?.let { seatVentLevelPassenger = it }
 
         readHud()
+        readRoof()
+    }
+
+    /**
+     * The two roof panels, read only while something is showing them.
+     *
+     * Which panels exist is a single read, wanted once - the settings screen needs
+     * it before any roof control exists to want the percentages.
+     */
+    private fun readRoof() {
+        if (sunroofFitted == null) sunroofFitted = CarBus.sunroofFitted()
+        if (sunshadeFitted == null) sunshadeFitted = CarBus.sunshadeFitted()
+        if (!roofWanted) return
+
+        CarBus.sunroofPercent()?.let { sunroofPercent = it }
+        CarBus.sunshadePercent()?.let { sunshadePercent = it }
     }
 
     /** The HUD's switches and levels, read only while something is showing them. */
@@ -335,8 +379,25 @@ object CarStatus {
         NavAction.FAN_GROUP -> fanLabel()
         NavAction.HUD_BRIGHTNESS_GROUP -> hudBrightnessLabel()
         NavAction.HUD_HEIGHT_GROUP -> hudHeightLabel()
+        NavAction.SUNROOF, NavAction.SUNSHADE -> roofLabel(action)
         else -> ""
     }
+
+    /** How far one panel is open, or null before the first poll has landed. */
+    fun roofPercent(action: NavAction): Int? = when (action) {
+        NavAction.SUNROOF -> sunroofPercent
+        NavAction.SUNSHADE -> sunshadePercent
+        else -> null
+    }
+
+    /** Whether the car has the panel this button drives; null while unknown. */
+    fun roofFitted(action: NavAction): Boolean? = when (action) {
+        NavAction.SUNROOF -> sunroofFitted
+        NavAction.SUNSHADE -> sunshadeFitted
+        else -> null
+    }
+
+    fun roofLabel(action: NavAction): String = roofPercent(action)?.let { "$it%" } ?: "--"
 
     // The HUD previews mirror the climate ones below: move the cached value on the
     // press, hold it while the car catches up, and let a refusal re-sync it.

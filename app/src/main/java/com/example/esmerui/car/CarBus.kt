@@ -204,6 +204,76 @@ object CarBus {
 
     fun setHudHeight(level: Int): Boolean = BydFeatures.writeInt(SETTING, "SET_HEIGHT_GEAR_SET", level)
 
+    // ---- Roof --------------------------------------------------------------
+
+    /**
+     * The glass panel and the blind under it.
+     *
+     * Neither takes an open/close switch: both are driven by writing the
+     * percentage they should travel to, which is what the ROM's own
+     * `BYDAutoBodyworkDevice.setMoonRoofState` and `setSunshadeState` do - each
+     * validates a percentage and then writes it straight to the `_PERCENT_SET`
+     * id. Zero closes. The wrapper enforces `BYDAUTO_BODYWORK_SET`, which is
+     * signature-level and not granted here, so these go over the generic manager
+     * like every other write the bar makes.
+     */
+    private const val BODYWORK = "Bodywork"
+
+    /**
+     * What the roof is built from, as `getMoonRoofConfig` reports it. A car can
+     * have the blind without the glass, so the two buttons are offered separately.
+     */
+    private const val ROOF_CONFIG_ROOF_AND_SHADE = 1
+    private const val ROOF_CONFIG_SHADE_ONLY = 2
+    private const val ROOF_CONFIG_ROOF_ANTI_PINCH = 3
+
+    const val ROOF_OPEN_PERCENT = 100
+    const val ROOF_CLOSED_PERCENT = 0
+
+    /**
+     * The glass refuses a percentage between 1 and 20 - `setMoonRoofState` rejects
+     * that whole band rather than clamping it - so the smallest opening it will
+     * accept is 21. The blind has no such floor and takes all of 0..100.
+     */
+    private const val SUNROOF_MIN_OPEN = 21
+
+    /** "Stop where you are", accepted by both panels. */
+    const val ROOF_STOP = 254
+
+    private fun roofConfig(): Int? = reading(BODYWORK, "BODYWORK_MOON_ROOF_CONFIG")
+
+    fun sunroofFitted(): Boolean? = roofConfig()?.let {
+        it == ROOF_CONFIG_ROOF_AND_SHADE || it == ROOF_CONFIG_ROOF_ANTI_PINCH
+    }
+
+    fun sunshadeFitted(): Boolean? = roofConfig()?.let {
+        it == ROOF_CONFIG_ROOF_AND_SHADE || it == ROOF_CONFIG_SHADE_ONLY
+    }
+
+    /** A panel mid-travel reports where it has got to; anything outside is noise. */
+    private fun roofPercent(field: String): Int? =
+        reading(BODYWORK, field)?.takeIf { it in ROOF_CLOSED_PERCENT..ROOF_OPEN_PERCENT }
+
+    fun sunroofPercent(): Int? = roofPercent("BODYWORK_MOON_ROOF_OPEN_PERCENT")
+
+    fun sunshadePercent(): Int? = roofPercent("BODYWORK_SUNSHADE_PANEL_PERCENT")
+
+    fun setSunroofPercent(percent: Int): Boolean = BydFeatures.writeInt(
+        BODYWORK,
+        "BODYWORK_MOON_ROOF_OPEN_PERCENT_SET",
+        when {
+            percent == ROOF_STOP -> percent
+            percent <= ROOF_CLOSED_PERCENT -> ROOF_CLOSED_PERCENT
+            else -> percent.coerceIn(SUNROOF_MIN_OPEN, ROOF_OPEN_PERCENT)
+        },
+    )
+
+    fun setSunshadePercent(percent: Int): Boolean = BydFeatures.writeInt(
+        BODYWORK,
+        "BODYWORK_SUNSHADE_PANEL_PERCENT_SET",
+        if (percent == ROOF_STOP) percent else percent.coerceIn(ROOF_CLOSED_PERCENT, ROOF_OPEN_PERCENT),
+    )
+
     // ---- Readouts ----------------------------------------------------------
 
     /**

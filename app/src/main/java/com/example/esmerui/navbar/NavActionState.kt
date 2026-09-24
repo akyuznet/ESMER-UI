@@ -42,7 +42,9 @@ object NavActionState {
         NavAction.HUD_POWER,
         NavAction.HUD_NAV,
         NavAction.HUD_ADAS,
-        NavAction.HUD_THEME -> true
+        NavAction.HUD_THEME,
+        NavAction.SUNROOF,
+        NavAction.SUNSHADE -> true
 
         else -> false
     }
@@ -85,6 +87,12 @@ object NavActionState {
         // way a vent only counts as open with the blower running.
         NavAction.HUD_NAV -> CarStatus.hudOn && CarStatus.hudNavigationOn
         NavAction.HUD_ADAS -> CarStatus.hudOn && CarStatus.hudAdasOn
+
+        // Any opening at all counts, including a panel still on its way: the
+        // percentage beside the icon says how far, and the colour says "not shut".
+        NavAction.SUNROOF, NavAction.SUNSHADE ->
+            (CarStatus.roofPercent(action) ?: 0) > 0
+
         else -> false
     }
 }

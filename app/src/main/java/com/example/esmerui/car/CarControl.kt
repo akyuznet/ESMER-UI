@@ -99,7 +99,8 @@ object CarControl {
 
     /** True when [message] reports a failure rather than a new value. */
     fun isFailure(message: String): Boolean =
-        message == REFUSED || message == UNAVAILABLE || message == HUD_UNAVAILABLE
+        message == REFUSED || message == UNAVAILABLE || message == HUD_UNAVAILABLE ||
+            message == ROOF_UNAVAILABLE
 
     /** Falls back to reading the car only when the cache has never been filled. */
     fun nudgeTemperature(delta: Int): String {
@@ -385,6 +386,42 @@ object CarControl {
         return setHudHeight(base + delta)
     }
 
+    // ---- Roof --------------------------------------------------------------
+
+    /**
+     * One press means "go the other way": anything open closes, a shut panel opens
+     * fully.
+     *
+     * Mid-travel counts as open, so a second press reverses a panel still on its
+     * way rather than doing nothing until it arrives - which is also the only stop
+     * the bar offers, and the one a hand reaches for when the roof is going
+     * somewhere it should not.
+     *
+     * Nothing is previewed. The car reports the travel a poll at a time and that
+     * is the useful thing to show; claiming the commanded value straight away
+     * would read 100% with the glass barely moving.
+     */
+    fun toggleSunroof(): String = toggleRoof(
+        label = "Sunroof",
+        current = CarStatus.sunroofPercent ?: CarBus.sunroofPercent(),
+    ) { CarBus.setSunroofPercent(it) }
+
+    fun toggleSunshade(): String = toggleRoof(
+        label = "Sunshade",
+        current = CarStatus.sunshadePercent ?: CarBus.sunshadePercent(),
+    ) { CarBus.setSunshadePercent(it) }
+
+    private inline fun toggleRoof(
+        label: String,
+        current: Int?,
+        write: (Int) -> Boolean,
+    ): String {
+        val opening = (current ?: return ROOF_UNAVAILABLE) <= CarBus.ROOF_CLOSED_PERCENT
+        val target = if (opening) CarBus.ROOF_OPEN_PERCENT else CarBus.ROOF_CLOSED_PERCENT
+        if (!write(target)) return REFUSED
+        return if (opening) "$label opening" else "$label closing"
+    }
+
     /** A refused HUD write means the preview is a lie - drop it and re-read at once. */
     private fun hudResult(ok: Boolean, message: String): String {
         if (!ok) {
@@ -396,5 +433,6 @@ object CarControl {
 
     private const val UNAVAILABLE = "OverDrive not reachable"
     private const val HUD_UNAVAILABLE = "HUD not answering"
+    private const val ROOF_UNAVAILABLE = "Roof not answering"
     private const val REFUSED = "Car refused the command"
 }

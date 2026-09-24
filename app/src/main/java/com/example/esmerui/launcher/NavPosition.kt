@@ -38,6 +38,7 @@ enum class NavActionGroup(val label: String) {
     CLIMATE("Climate"),
     SEATS("Seats"),
     HUD("Head-up display"),
+    ROOF("Roof"),
     INFO("Information"),
 }
 
@@ -55,6 +56,12 @@ enum class NavAction(
     val isGroup: Boolean = false,
     /** Shows a value instead of doing something; nothing happens when pressed. */
     val isReadout: Boolean = false,
+    /**
+     * Pressable *and* carrying a live percentage - the roof panels, which are the
+     * one thing on the bar that is neither a switch nor a number but both: a
+     * press sends it somewhere, and how far it has got is the point.
+     */
+    val isPercent: Boolean = false,
 ) {
     BACK("Back", NavActionGroup.NAVIGATION),
     HOME("Home", NavActionGroup.NAVIGATION),
@@ -110,6 +117,14 @@ enum class NavAction(
     HUD_HEIGHT_DOWN("HUD height -", NavActionGroup.HUD, needsCar = true),
 
     /**
+     * The glass panel and the blind under it. Both travel to a commanded
+     * percentage rather than taking an open/close switch, so each button is a
+     * toggle that also reports how far its panel has actually got.
+     */
+    SUNROOF("Sunroof", NavActionGroup.ROOF, needsCar = true, isPercent = true),
+    SUNSHADE("Sunshade", NavActionGroup.ROOF, needsCar = true, isPercent = true),
+
+    /**
      * Readouts: an icon and a live value, pressed for nothing. The clock and date
      * come from the head unit; the rest are the car's own signals.
      */
@@ -137,6 +152,9 @@ enum class NavAction(
     /** The head-up display controls, which share one poll gate and one colour rule. */
     val isHud: Boolean get() = group == NavActionGroup.HUD
 
+    /** The roof panels, which share a poll gate the same way the HUD controls do. */
+    val isRoof: Boolean get() = group == NavActionGroup.ROOF
+
     /**
      * The single-step actions a stepper is built from, down then up, or null for
      * anything that is not a stepper. Kept here so the bar, the grid and the command
@@ -151,13 +169,19 @@ enum class NavAction(
             else -> null
         }
 
-    /** The caption under a stepper's value, so a bare number is not ambiguous. */
+    /**
+     * The caption under a live value, so a bare number is not ambiguous. Shared by
+     * the steppers and the roof buttons, which both draw a value with a label
+     * tucked under it.
+     */
     val stepperCaption: String
         get() = when (this) {
             TEMP_GROUP -> "TEMP"
             FAN_GROUP -> "FAN"
             HUD_BRIGHTNESS_GROUP -> "HUD BRIGHT"
             HUD_HEIGHT_GROUP -> "HUD HEIGHT"
+            SUNROOF -> "ROOF"
+            SUNSHADE -> "SHADE"
             else -> ""
         }
 

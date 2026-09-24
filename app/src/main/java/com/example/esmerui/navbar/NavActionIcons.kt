@@ -107,6 +107,9 @@ object NavActionIcons {
         NavAction.HUD_HEIGHT_GROUP, NavAction.HUD_HEIGHT_UP,
         NavAction.HUD_HEIGHT_DOWN -> R.drawable.ic_hud_height
 
+        NavAction.SUNROOF -> R.drawable.ic_sunroof
+        NavAction.SUNSHADE -> R.drawable.ic_sunshade
+
         NavAction.INFO_CLOCK -> R.drawable.ic_info_clock
         NavAction.INFO_DATE -> R.drawable.ic_info_date
         NavAction.INFO_SIGNAL -> R.drawable.ic_info_signal

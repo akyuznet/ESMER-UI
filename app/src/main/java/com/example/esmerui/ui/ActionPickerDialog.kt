@@ -51,6 +51,7 @@ fun ActionPickerDialog(
             NavActionGroup.CLIMATE,
             NavActionGroup.SEATS,
             NavActionGroup.HUD,
+            NavActionGroup.ROOF,
             NavActionGroup.MEDIA,
             NavActionGroup.NAVIGATION,
         )

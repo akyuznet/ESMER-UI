@@ -57,7 +57,62 @@ fun ActionCell(
     when {
         action.isGroup -> StepperCell(action, iconSize, onPress, modifier)
         action.isReadout -> ReadoutCell(action, iconSize, modifier)
+        action.isPercent -> PercentCell(action, iconSize, onPress, modifier)
         else -> ButtonCell(action, iconSize, onPress, modifier)
+    }
+}
+
+/**
+ * A pressable button that also carries a live percentage - the roof panels.
+ *
+ * Laid out like a readout rather than a plain button, because the number is the
+ * point: how far the glass has actually travelled is what you look at while it
+ * moves. The label goes underneath so a bare "40%" is never ambiguous, and the
+ * whole cell goes green once the panel is off its seal.
+ */
+@Composable
+private fun PercentCell(
+    action: NavAction,
+    iconSize: Dp,
+    onPress: (NavAction) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val poll = observePoll()
+    val open = remember(poll, action) { NavActionState.isActive(action) }
+    val reading = remember(poll, action) { CarStatus.roofLabel(action) }
+    val tint = Color(if (open) NavPalette.ACTIVE else NavPalette.ICON)
+
+    Column(
+        modifier = modifier.fillMaxSize(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            painter = painterResource(NavActionIcons.current(action)),
+            contentDescription = action.label,
+            modifier = Modifier.size(iconSize * 0.62f),
+            tint = tint,
+        )
+        Spacer(Modifier.height(4.dp))
+        Text(
+            text = reading,
+            style = MaterialTheme.typography.titleMedium.copy(
+                fontWeight = FontWeight.Bold,
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+            color = tint,
+            maxLines = 1,
+        )
+        Text(
+            text = action.label,
+            style = MaterialTheme.typography.labelMedium.copy(
+                platformStyle = PlatformTextStyle(includeFontPadding = false),
+            ),
+            color = MaterialTheme.colorScheme.onSurface,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Center,
+        )
     }
 }
 
