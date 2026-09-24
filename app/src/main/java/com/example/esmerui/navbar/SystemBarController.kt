@@ -23,7 +23,9 @@ import android.util.Log
 object SystemBarController {
 
     private const val TAG = "SystemBarController"
-    private const val KEY = "policy_control"
+
+    /** The global setting both bars live in; the bar service watches it for clears. */
+    const val KEY = "policy_control"
 
     private const val HIDE_NAV = "immersive.navigation=*"
     private const val HIDE_STATUS = "immersive.status=*"

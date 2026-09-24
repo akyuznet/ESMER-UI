@@ -211,6 +211,46 @@ class NavBarService : Service() {
         BusWatch.register(this)
         startInForeground()
         watchAccessibilitySetting()
+        watchSystemBarPolicy()
+    }
+
+    /**
+     * Re-hides the head unit's bars whenever something else brings them back.
+     *
+     * The hide is one global setting, and it does not last: the ROM leaves it
+     * empty after a boot, and another launcher on this unit clears it outright
+     * whenever it comes forward. Until now it was only re-asserted on a rebuild,
+     * so BYD's bars could sit over ours for as long as the configuration stayed
+     * still. Watching the setting itself puts them back within a moment.
+     *
+     * No loop: [applySystemBars] writes only when the platform disagrees with
+     * what is wanted, so our own write leaves nothing for the observer to do.
+     */
+    private fun watchSystemBarPolicy() {
+        val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) {
+                // Other launchers write, then write again; settle before answering,
+                // or we trade writes with them.
+                pollHandler.removeCallbacks(reassertSystemBars)
+                pollHandler.postDelayed(reassertSystemBars, POLICY_SETTLE_MS)
+            }
+        }
+        policyObserver = observer
+        contentResolver.registerContentObserver(
+            Settings.Global.getUriFor(SystemBarController.KEY),
+            false,
+            observer,
+        )
+    }
+
+    private var policyObserver: ContentObserver? = null
+
+    private val reassertSystemBars = Runnable {
+        if (barViews.isEmpty()) return@Runnable
+        applySystemBars()
+        // Hidden bars change what the system holds back for apps, and the bars
+        // sit in that frame, so the reservation and their placement move with it.
+        reserveEdges()
     }
 
     /**
@@ -267,6 +307,9 @@ class NavBarService : Service() {
         OverscanController.clear()
         accessibilityObserver?.let { contentResolver.unregisterContentObserver(it) }
         accessibilityObserver = null
+        policyObserver?.let { contentResolver.unregisterContentObserver(it) }
+        policyObserver = null
+        pollHandler.removeCallbacks(reassertSystemBars)
         BusWatch.unregister(this)
         super.onDestroy()
     }
@@ -1841,6 +1884,13 @@ class NavBarService : Service() {
 
         /** Long enough to register, short enough not to lag a rapid step. */
         private const val FLASH_MS = 180L
+
+        /**
+         * How long to let the system-bar setting settle after someone else writes
+         * it before putting it back. Another launcher writes it more than once as
+         * it comes forward; answering each write would be a tug of war.
+         */
+        private const val POLICY_SETTLE_MS = 800L
 
         /**
          * The buttons that carry a live percentage, resolved once. [refreshReadouts]

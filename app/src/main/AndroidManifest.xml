@@ -23,6 +23,12 @@
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <!--
+      Bring the bars up as soon as the head unit boots. Without this they only
+      appear once the home screen has run, and a boot that lands on another app -
+      Android Auto reconnecting, say - leaves BYD's own bars on screen instead.
+    -->
+    <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
+    <!--
       Needed only to hide the head unit's own navigation bar. Not grantable from
       the UI; grant once over adb:
         adb shell pm grant com.example.esmerui android.permission.WRITE_SECURE_SETTINGS
@@ -233,6 +239,17 @@
                 android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
                 android:value="Persistent launcher navigation bar overlay" />
         </service>
+
+        <receiver
+            android:name=".navbar.BootReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+                <!-- What this head unit's ROM sends on a warm start from standby. -->
+                <action android:name="android.intent.action.QUICKBOOT_POWERON" />
+                <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
 
         <service
             android:name=".navbar.NavAccessibilityService"
