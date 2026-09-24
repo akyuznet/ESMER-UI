@@ -50,11 +50,16 @@ object OverscanController {
      *
      * A list, because an app cannot be asked which insets it honours. These were
      * each measured on the unit, one screenshot per setting.
+     *
+     * Android Auto is deliberately *not* here, against the obvious guess. It
+     * centres a fixed-aspect projection surface in whatever area it is handed, so
+     * with nothing reserved it centres that surface in the whole screen and its
+     * top row of controls ends up behind our bar. Reserving in full hands it the
+     * space between the bars instead and the whole of it is visible - the letterbox
+     * above and below is its own, and is there either way.
      */
     private val STABLE_INSET_APPS = setOf(
         "com.waze",
-        "com.byd.androidauto",
-        "com.google.android.projection.gearhead",
     )
 
     /**
@@ -74,14 +79,19 @@ object OverscanController {
     private fun wantsReduced(pkg: String?): Boolean = pkg != null && pkg in STABLE_INSET_APPS
 
     /**
-     * Records the app that just came forward, and answers whether the reservation
-     * it wants differs from the one in force - which is the caller's cue to re-sync.
+     * Records the app that just came forward, and answers whether the caller should
+     * re-reserve the edges.
+     *
+     * True for any change of app, not only one that changes the policy. Re-syncing
+     * costs a single binder call and skips the relayout when the numbers come out
+     * the same, whereas comparing policies alone leaves no way back from a
+     * reservation that has drifted - the service rebuilding while a reduced app was
+     * in front, say, which would otherwise stay wrong until a third app appeared.
      */
     fun onForeground(pkg: String?): Boolean {
         if (pkg == null || pkg in TRANSIENT_PACKAGES || pkg == foreground) return false
-        val before = wantsReduced(foreground)
         foreground = pkg
-        return wantsReduced(pkg) != before
+        return true
     }
 
     /** The overscan currently in force, so bars can convert screen to frame coords. */
