@@ -1813,14 +1813,35 @@ class NavBarService : Service() {
      * The first check waits [ACCESSIBILITY_GRACE_MS], because connecting legitimately
      * takes a moment after a boot or an install; only then is a rebind forced, and
      * the result is checked again rather than assumed.
+     *
+     * The ladder deliberately does *not* honour [REPAIR_COOLDOWN_MS]. That cooldown
+     * is there so a bar full of presses cannot become a stream of rebinds, and it
+     * belongs to the press path in [repairAccessibility]. Applied here it stopped
+     * the ladder dead: each rung follows the last by [REBIND_SETTLE_MS], which is
+     * well inside the cooldown, so attempt 1 always bailed and the process restart
+     * on attempt 2 was unreachable. Found on the car, 26 Sep 2026, with a binding
+     * stuck overnight and the repair that should have cleared it never having run.
+     * The ladder is bounded by [ACCESSIBILITY_REPAIR_ATTEMPTS], and the restart by
+     * its own wall-clock cooldown, so neither needs this one.
      */
     private fun verifyAccessibility(attempt: Int) {
+        // One ladder at a time. Both onCreate and the enabled-list observer start
+        // one, and that list is rewritten by other apps on this unit, so without
+        // this they stack and race each other to the restart.
+        if (attempt == 0) {
+            if (verifyingAccessibility) return
+            verifyingAccessibility = true
+        }
         pollHandler.postDelayed({
-            if (NavAccessibilityService.isConnected) return@postDelayed
+            if (NavAccessibilityService.isConnected) {
+                verifyingAccessibility = false
+                return@postDelayed
+            }
 
             // Not being listed at all is a different problem: the user has to grant
             // it, and no amount of rebinding substitutes for that.
             if (!AccessibilityGuard.ensureEnabled(this)) {
+                verifyingAccessibility = false
                 warnAccessibility()
                 return@postDelayed
             }
@@ -1828,19 +1849,20 @@ class NavBarService : Service() {
             // The toggle has had its chances. What is left is not an absent
             // binding but a stuck one, and only dropping our process shifts that.
             if (attempt >= ACCESSIBILITY_REPAIR_ATTEMPTS) {
+                verifyingAccessibility = false
+                Log.w(TAG, "accessibility still unbound after $attempt rebinds")
                 restartToClearBinding()
                 return@postDelayed
             }
 
-            val now = SystemClock.elapsedRealtime()
-            if (now - lastRepairAt < REPAIR_COOLDOWN_MS) {
-                warnAccessibility()
-                return@postDelayed
-            }
-            lastRepairAt = now
+            Log.i(TAG, "accessibility unbound; rebind attempt ${attempt + 1}")
+            lastRepairAt = SystemClock.elapsedRealtime()
             AccessibilityGuard.rebind(this) { verifyAccessibility(attempt + 1) }
         }, if (attempt == 0) ACCESSIBILITY_GRACE_MS else REBIND_SETTLE_MS)
     }
+
+    /** Guards against overlapping repair ladders; see [verifyAccessibility]. */
+    private var verifyingAccessibility = false
 
     /**
      * Drops our own process, which is the only thing that shifts an accessibility

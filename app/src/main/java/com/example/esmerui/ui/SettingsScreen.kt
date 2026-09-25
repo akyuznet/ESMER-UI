@@ -810,6 +810,12 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
             )
             Spacer(Modifier.height(8.dp))
         }
+        // Listed and connected are different things on this unit. The head unit
+        // refuses to start our service while we are not running unless its own
+        // "Disable Autostart" list allows us, and being in the enabled list does
+        // nothing about that - so a third state, with the one fix that works.
+        var a11yConnected by remember { mutableStateOf(NavAccessibilityService.isConnected) }
+        val a11yBlocked = a11yEnabled && !a11yConnected
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -822,8 +828,11 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
                                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                             )
                         }
+                    } else if (!NavAccessibilityService.isConnected) {
+                        AccessibilityGuard.openAutostartManager(context)
                     }
                     a11yEnabled = NavAccessibilityService.isEnabled(context)
+                    a11yConnected = NavAccessibilityService.isConnected
                 }
                 .padding(vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -835,19 +844,23 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
                     color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
-                    text = if (a11yEnabled) {
-                        "Active. Re-applied automatically if another app disables it."
-                    } else {
-                        "Inactive - needs the accessibility service. Tap to fix."
+                    text = when {
+                        a11yBlocked ->
+                            "Enabled but not running. Tap to open the car's Disable Autostart " +
+                                "list and switch ESMER·UI off there, so the system may start it"
+                        a11yEnabled ->
+                            "Active. Re-applied automatically if another app disables it."
+                        else ->
+                            "Inactive - needs the accessibility service. Tap to fix."
                     },
                     style = MaterialTheme.typography.bodySmall,
-                    color = if (a11yEnabled) MaterialTheme.colorScheme.onSurfaceVariant
+                    color = if (a11yEnabled && !a11yBlocked) MaterialTheme.colorScheme.onSurfaceVariant
                     else MaterialTheme.colorScheme.primary,
                 )
             }
-            if (!a11yEnabled) {
+            if (!a11yEnabled || a11yBlocked) {
                 Text(
-                    text = "Fix",
+                    text = if (a11yBlocked) "Allow" else "Fix",
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
