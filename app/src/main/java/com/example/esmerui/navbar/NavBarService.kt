@@ -1,8 +1,10 @@
 package com.example.esmerui.navbar
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
+import android.app.PendingIntent
 import android.app.Service
 import android.content.ComponentName
 import android.content.Context
@@ -16,7 +18,9 @@ import android.graphics.drawable.GradientDrawable
 import android.os.Handler
 import android.os.IBinder
 import android.os.Looper
+import android.os.Process
 import android.os.SystemClock
+import android.util.Log
 import android.provider.Settings
 import android.view.MotionEvent
 import android.view.Gravity
@@ -294,6 +298,13 @@ class NavBarService : Service() {
         // every view and every readout several times a minute.
         if (intent?.action == ACTION_RESERVE) {
             reserveEdges()
+            return START_STICKY
+        }
+        // Debug only, from BusWatch: run the last rung of the accessibility repair
+        // on demand. A path that only executes when something is already broken is
+        // otherwise impossible to see working.
+        if (intent?.action == ACTION_REPAIR) {
+            restartToClearBinding()
             return START_STICKY
         }
         rebuild()
@@ -1814,16 +1825,72 @@ class NavBarService : Service() {
                 return@postDelayed
             }
 
+            // The toggle has had its chances. What is left is not an absent
+            // binding but a stuck one, and only dropping our process shifts that.
+            if (attempt >= ACCESSIBILITY_REPAIR_ATTEMPTS) {
+                restartToClearBinding()
+                return@postDelayed
+            }
+
             val now = SystemClock.elapsedRealtime()
-            if (attempt >= ACCESSIBILITY_REPAIR_ATTEMPTS ||
-                now - lastRepairAt < REPAIR_COOLDOWN_MS
-            ) {
+            if (now - lastRepairAt < REPAIR_COOLDOWN_MS) {
                 warnAccessibility()
                 return@postDelayed
             }
             lastRepairAt = now
             AccessibilityGuard.rebind(this) { verifyAccessibility(attempt + 1) }
         }, if (attempt == 0) ACCESSIBILITY_GRACE_MS else REBIND_SETTLE_MS)
+    }
+
+    /**
+     * Drops our own process, which is the only thing that shifts an accessibility
+     * binding the platform has left half-open.
+     *
+     * Measured on this unit, 25 Sep 2026, with our entry sitting in the platform's
+     * "Binding" queue and never reaching "Bound": toggling the accessibility master
+     * switch did nothing whatever - the other services stayed bound straight
+     * through it and no bind was even attempted - and taking our entry out of the
+     * enabled list did not dislodge it either. Killing the process made the
+     * half-open connection die, and the next start bound on the first try.
+     *
+     * The alarm is set before the kill, and committed, not applied: a process
+     * about to die finishes nothing it has merely queued. A sticky service is
+     * usually restarted on its own, but "usually" is not good enough for the thing
+     * that draws the bar.
+     *
+     * Rate limited on wall-clock time, which survives the restart that elapsed
+     * time would not. A setup that is broken for some other reason would otherwise
+     * have the launcher kill itself every few seconds for ever.
+     */
+    private fun restartToClearBinding() {
+        val prefs = getSharedPreferences(REPAIR_PREFS, Context.MODE_PRIVATE)
+        val now = System.currentTimeMillis()
+        val since = now - prefs.getLong(KEY_LAST_SELF_RESTART, 0L)
+        if (since in 0 until SELF_RESTART_COOLDOWN_MS) {
+            // We already did this, came back, and are still not bound. The binding
+            // is not what is wrong, so say so rather than loop.
+            Log.w(TAG, "still unbound ${since}ms after a restart; not killing again")
+            warnAccessibility()
+            return
+        }
+        prefs.edit().putLong(KEY_LAST_SELF_RESTART, now).commit()
+
+        val restart = PendingIntent.getForegroundService(
+            this,
+            0,
+            Intent(this, NavBarService::class.java),
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE,
+        )
+        runCatching {
+            getSystemService(AlarmManager::class.java).setExactAndAllowWhileIdle(
+                AlarmManager.RTC_WAKEUP,
+                now + SELF_RESTART_DELAY_MS,
+                restart,
+            )
+        }.onFailure { Log.w(TAG, "could not schedule the restart: ${it.message}") }
+
+        Log.i(TAG, "accessibility stuck binding; restarting our process to clear it")
+        Process.killProcess(Process.myPid())
     }
 
     private fun warnAccessibility() {
@@ -1919,8 +1986,28 @@ class NavBarService : Service() {
          */
         private const val ACCESSIBILITY_GRACE_MS = 6_000L
 
-        /** Past this, rebinding is not working and the user needs telling. */
+        /** Past this the toggle is not working, and the process restart takes over. */
         private const val ACCESSIBILITY_REPAIR_ATTEMPTS = 2
+
+        private const val TAG = "NavBarService"
+
+        /**
+         * Diagnostic state, deliberately in its own file: the user's settings are
+         * backed up and diffed around every install and have no business carrying
+         * a repair timestamp.
+         */
+        private const val REPAIR_PREFS = "navbar_repair"
+        private const val KEY_LAST_SELF_RESTART = "last_self_restart"
+
+        /** Long enough for the platform to have finished with the dead process. */
+        private const val SELF_RESTART_DELAY_MS = 2_500L
+
+        /**
+         * Wall-clock, because elapsed time would not survive the restart this
+         * guards against. Generous: a restart that did not take is a fault to
+         * report, not something to keep retrying at.
+         */
+        private const val SELF_RESTART_COOLDOWN_MS = 10 * 60 * 1000L
 
         /** Lit layers indexed by how many parts are green; 0 is blank. */
         private val WIFI_SYMBOL = RadioSymbol(
@@ -2049,7 +2136,17 @@ class NavBarService : Service() {
         const val ACTION_STOP = "com.example.esmerui.NAVBAR_STOP"
         const val ACTION_PERFORM = "com.example.esmerui.NAVBAR_PERFORM"
         const val ACTION_RESERVE = "com.example.esmerui.NAVBAR_RESERVE"
+        const val ACTION_REPAIR = "com.example.esmerui.NAVBAR_REPAIR"
         const val EXTRA_ACTION = "action"
+
+        /** Debug only: exercises the process restart that clears a stuck binding. */
+        fun repairAccessibility(context: Context) {
+            runCatching {
+                context.startService(
+                    Intent(context, NavBarService::class.java).setAction(ACTION_REPAIR)
+                )
+            }
+        }
 
         /** Asks the bar to re-reserve the edges for whatever is now in front. */
         fun reserveEdges(context: Context) {

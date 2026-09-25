@@ -76,6 +76,17 @@ object BusWatch : BroadcastReceiver() {
      */
     private const val ACTION_PRESENT = "com.example.esmerui.PRESENT"
 
+    /**
+     * Runs the last rung of the accessibility repair - the process restart that
+     * clears a binding the platform has left half-open:
+     *
+     *     adb shell am broadcast -a com.example.esmerui.REPAIR -p com.example.esmerui
+     *
+     * Debug builds only. The path it exercises runs by itself when the binding is
+     * actually stuck; this is the only way to watch it work on a healthy unit.
+     */
+    private const val ACTION_REPAIR = "com.example.esmerui.REPAIR"
+
     private const val MAX_HZ = 20
     private const val MAX_SECONDS = 600
     private const val HEARTBEAT_MS = 1_000L
@@ -90,6 +101,7 @@ object BusWatch : BroadcastReceiver() {
             addAction(ACTION_CLUSTER)
             addAction(ACTION_SET)
             addAction(ACTION_PRESENT)
+            addAction(ACTION_REPAIR)
         })
     }
 
@@ -102,6 +114,13 @@ object BusWatch : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_REPAIR) {
+            if (!debuggable(context)) return
+            Log.i(TAG, "repair: restarting the process to clear the accessibility binding")
+            com.example.esmerui.navbar.NavBarService.repairAccessibility(context)
+            return
+        }
+
         if (intent.action == ACTION_PRESENT) {
             if (!debuggable(context)) return
             if (intent.getBooleanExtra("hide", false)) {
