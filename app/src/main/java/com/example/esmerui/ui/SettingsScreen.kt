@@ -3,6 +3,7 @@
 import android.content.ComponentName
 import android.content.Intent
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -34,6 +35,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -93,11 +96,12 @@ fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Column(
-        modifier = modifier
-            .fillMaxSize()
-            .verticalScroll(rememberScrollState()),
-    ) {
+    // Which tab is showing. Deliberately not rememberSaveable: settings is reached
+    // from the home screen and left by the Back button, and coming back to where
+    // you were last week is more surprising than starting at the top.
+    var tab by remember { mutableStateOf(SettingsTab.HOME) }
+
+    Column(modifier = modifier.fillMaxSize()) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -123,58 +127,102 @@ fun SettingsScreen(
             }
         }
 
-        SettingsCard(title = "Grid") {
-            StepperSetting(
-                label = "Columns",
-                value = settings.columns,
-                range = LauncherSettings.COLUMNS_RANGE,
-                onValueChange = { settings.columns = it },
-            )
-            StepperSetting(
-                label = "Rows per page",
-                value = settings.rows,
-                range = LauncherSettings.ROWS_RANGE,
-                onValueChange = { settings.rows = it },
-            )
-            Text(
-                text = "${settings.appsPerPage} apps per page",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 4.dp),
-            )
+        TabRow(selectedTabIndex = tab.ordinal) {
+            SettingsTab.entries.forEach { entry ->
+                Tab(
+                    selected = tab == entry,
+                    onClick = { tab = entry },
+                    // Taller than the default: this is reached for while parked, but
+                    // still from a driving position, and the default tab is a thin
+                    // strip to hit.
+                    modifier = Modifier.height(56.dp),
+                    text = {
+                        Text(
+                            text = entry.label,
+                            style = MaterialTheme.typography.titleSmall,
+                            maxLines = 1,
+                        )
+                    },
+                )
+            }
         }
 
-        SettingsCard(title = "Icons") {
-            SliderSetting(
-                label = "Icon size",
-                value = settings.iconSizeDp,
-                range = LauncherSettings.ICON_SIZE_RANGE,
-                valueLabel = "${settings.iconSizeDp} dp",
-                onValueChange = { settings.iconSizeDp = it },
-            )
-            Spacer(Modifier.height(8.dp))
-            IconPreview(sizeDp = settings.iconSizeDp)
+        // Each tab scrolls on its own: a fresh state per tab means switching to a
+        // short one does not land you halfway down it.
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(remember(tab) { ScrollState(0) }),
+        ) {
+            when (tab) {
+                SettingsTab.HOME -> {
+                    SettingsCard(title = "Grid") {
+                        StepperSetting(
+                            label = "Columns",
+                            value = settings.columns,
+                            range = LauncherSettings.COLUMNS_RANGE,
+                            onValueChange = { settings.columns = it },
+                        )
+                        StepperSetting(
+                            label = "Rows per page",
+                            value = settings.rows,
+                            range = LauncherSettings.ROWS_RANGE,
+                            onValueChange = { settings.rows = it },
+                        )
+                        Text(
+                            text = "${settings.appsPerPage} apps per page",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 4.dp),
+                        )
+                    }
+
+                    SettingsCard(title = "Icons") {
+                        SliderSetting(
+                            label = "Icon size",
+                            value = settings.iconSizeDp,
+                            range = LauncherSettings.ICON_SIZE_RANGE,
+                            valueLabel = "${settings.iconSizeDp} dp",
+                            onValueChange = { settings.iconSizeDp = it },
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        IconPreview(sizeDp = settings.iconSizeDp)
+                    }
+
+                    SettingsCard(title = "Preview") {
+                        GridPreview(columns = settings.columns, rows = settings.rows)
+                    }
+                }
+
+                SettingsTab.BARS -> NavBarSettingsCard(settings = settings, apps = apps)
+
+                SettingsTab.WINDOWS -> WindowSettingsCard(settings = settings, apps = apps)
+
+                SettingsTab.SYSTEM -> {
+                    DefaultLauncherCard(settings = settings)
+                    BackupCard(settings = settings)
+                }
+            }
+
+            // Clears the head unit's own dock, which overlays the bottom of the
+            // screen without reporting a window inset.
+            Spacer(Modifier.height(96.dp))
         }
-
-        SettingsCard(title = "Preview") {
-            GridPreview(
-                columns = settings.columns,
-                rows = settings.rows,
-            )
-        }
-
-        DefaultLauncherCard(settings = settings)
-
-        BackupCard(settings = settings)
-
-        NavBarSettingsCard(settings = settings, apps = apps)
-
-        WindowSettingsCard(settings = settings, apps = apps)
-
-        // Clears the head unit's own dock, which overlays the bottom of the screen
-        // without reporting a window inset.
-        Spacer(Modifier.height(96.dp))
     }
+}
+
+/**
+ * The settings screen's sections.
+ *
+ * Split because the single column had grown to a few screens of scrolling, and
+ * the thing you came to change was rarely the thing on screen. Ordered by how
+ * often each is wanted rather than by how the code is laid out.
+ */
+private enum class SettingsTab(val label: String) {
+    HOME("Home"),
+    BARS("Bars"),
+    WINDOWS("Windows"),
+    SYSTEM("System"),
 }
 
 /**
@@ -738,24 +786,30 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
 
         Spacer(Modifier.height(8.dp))
 
-        SwitchRow(
-            title = "Keep apps clear of the bars",
-            subtitle = if (settings.navReserveFullBars) {
-                "Apps are held off each bar's full width. Anything that lays out " +
-                    "against the hidden system bars, Android Auto among them, gets " +
-                    "a margin it does not need"
-            } else {
-                "Only the strip the head unit's own bars did not already hold back " +
-                    "is reserved, so most apps draw under ours"
-            },
-            checked = settings.navReserveFullBars,
-            onCheckedChange = {
-                settings.navReserveFullBars = it
-                NavBarService.sync(context)
-            },
-        )
-
-        Spacer(Modifier.height(8.dp))
+        // One per edge, and only the two that can be double-booked: there is no
+        // system bar down the sides, so a left or right bar is always reserved in
+        // full and a switch for it would do nothing.
+        NavPosition.entries.filter { it.canDoubleBook }.forEach { edge ->
+            val bar = settings.navBar(edge)
+            val on = settings.navBarReservesFull(edge)
+            SwitchRow(
+                title = "Keep apps clear of the ${edge.label.lowercase()} bar",
+                subtitle = when {
+                    !bar.isRenderable -> "No ${edge.label.lowercase()} bar to keep clear of"
+                    on -> "Apps are held off its full width. Anything laying out against " +
+                        "the hidden system bars, Waze among them, gets a margin it does not need"
+                    else -> "Only the strip the head unit's own bar did not already hold " +
+                        "back is reserved, so most apps draw under ours"
+                },
+                enabled = bar.isRenderable,
+                checked = on,
+                onCheckedChange = {
+                    settings.setNavBarReservesFull(edge, it)
+                    NavBarService.sync(context)
+                },
+            )
+            Spacer(Modifier.height(8.dp))
+        }
         Row(
             modifier = Modifier
                 .fillMaxWidth()

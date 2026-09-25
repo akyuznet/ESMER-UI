@@ -176,13 +176,15 @@ object OverscanController {
          * the size of the bar the head unit is no longer drawing. Subtracting is
          * the other side of that trade, and leaves most apps underlapped.
          */
-        val reserveFull = settings.navReserveFullBars && !wantsReduced(foreground)
-        val discount = if (reserveFull) 0 else 1
+        fun discount(position: NavPosition): Int =
+            if (settings.navBarReservesFull(position) && !wantsReduced(foreground)) 0 else 1
 
         val left = reserved(NavPosition.LEFT)
         val right = reserved(NavPosition.RIGHT)
-        val top = (reserved(NavPosition.TOP) - reservedTop * discount).coerceAtLeast(0)
-        val bottom = (reserved(NavPosition.BOTTOM) - reservedBottom * discount).coerceAtLeast(0)
+        val top = (reserved(NavPosition.TOP) - reservedTop * discount(NavPosition.TOP))
+            .coerceAtLeast(0)
+        val bottom = (reserved(NavPosition.BOTTOM) - reservedBottom * discount(NavPosition.BOTTOM))
+            .coerceAtLeast(0)
 
         val applied = setOverscan(left, top, right, bottom)
         active = applied && (left or top or right or bottom) != 0
