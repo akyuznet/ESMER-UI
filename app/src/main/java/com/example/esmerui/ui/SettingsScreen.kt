@@ -647,8 +647,9 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
             if (group == NavActionGroup.HUD && CarStatus.hudFitted == false) return@forEach
             val actions = NavAction.entries
                 .filter { it.group == group && (carAvailable || !it.needsCar) }
-                // A car can have the blind without the glass, so the roof pair is
-                // filtered panel by panel rather than as a section.
+                // A car can have the blind without the glass, or windows without a
+                // powered tailgate, so the travelling panels are filtered one by
+                // one rather than as a section.
                 .filter { CarStatus.roofFitted(it) != false }
             if (actions.isEmpty()) return@forEach
 

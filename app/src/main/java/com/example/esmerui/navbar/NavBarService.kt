@@ -1806,6 +1806,13 @@ class NavBarService : Service() {
             NavAction.SUNROOF -> car { CarControl.toggleSunroof() }
             NavAction.SUNSHADE -> car { CarControl.toggleSunshade() }
 
+            NavAction.WINDOW_LEFT_FRONT -> car { CarControl.toggleWindow(CarBus.CarWindow.LEFT_FRONT) }
+            NavAction.WINDOW_RIGHT_FRONT -> car { CarControl.toggleWindow(CarBus.CarWindow.RIGHT_FRONT) }
+            NavAction.WINDOW_LEFT_REAR -> car { CarControl.toggleWindow(CarBus.CarWindow.LEFT_REAR) }
+            NavAction.WINDOW_RIGHT_REAR -> car { CarControl.toggleWindow(CarBus.CarWindow.RIGHT_REAR) }
+            NavAction.WINDOWS_ALL -> car { CarControl.toggleAllWindows() }
+            NavAction.TAILGATE -> car { CarControl.toggleTailgate() }
+
             // Groups build their own +/- buttons; they are never "pressed" directly,
             // and a readout has nothing to press at all.
             NavAction.TEMP_GROUP, NavAction.FAN_GROUP,

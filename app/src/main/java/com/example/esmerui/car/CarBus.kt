@@ -274,6 +274,71 @@ object CarBus {
         if (percent == ROOF_STOP) percent else percent.coerceIn(ROOF_CLOSED_PERCENT, ROOF_OPEN_PERCENT),
     )
 
+    // ---- Windows and tailgate -----------------------------------------------
+
+    /**
+     * The four side windows, by the register their position is read from and the
+     * one they are driven through.
+     *
+     * Unlike the roof, a window is not sent a percentage: the ROM's own
+     * `setBodyWindowCtrlState` writes one of a few commands to the CTRL register
+     * and the door module does the travel. Position comes back as how far *open*
+     * the glass is, 0 shut to 100 fully down - measured on the car 26 Sep 2026,
+     * when "open half" took the rear-right window from 0 to 49 and "close" took
+     * it back to 0. Left and right are the car's sides.
+     */
+    enum class CarWindow(val percentField: String, val controlField: String) {
+        LEFT_FRONT("BODYWORK_WINDOW_LEFT_FRONT_PERCENT", "BODYWORK_LF_WINDOW_CTRL_SET"),
+        RIGHT_FRONT("BODYWORK_WINDOW_RIGHT_FRONT_PERCENT", "BODYWORK_RF_WINDOW_CTRL_SET"),
+        LEFT_REAR("BODYWORK_WINDOW_LEFT_REAR_PERCENT", "BODYWORK_LR_WINDOW_CTRL_SET"),
+        RIGHT_REAR("BODYWORK_WINDOW_RIGHT_REAR_PERCENT", "BODYWORK_RR_WINDOW_CTRL_SET"),
+    }
+
+    /**
+     * The CTRL register's vocabulary, from the ROM's BYDAutoBodyworkDevice: open
+     * fully 1, close 2, stop 3 (4 is "half", 5 "breathe" - a crack for venting).
+     */
+    const val WINDOW_OPEN = 1
+    const val WINDOW_CLOSE = 2
+    const val WINDOW_STOP = 3
+
+    fun windowPercent(window: CarWindow): Int? =
+        reading(BODYWORK, window.percentField)?.takeIf { it in ROOF_CLOSED_PERCENT..ROOF_OPEN_PERCENT }
+
+    fun setWindow(window: CarWindow, command: Int): Boolean =
+        BydFeatures.writeInt(BODYWORK, window.controlField, command)
+
+    /**
+     * The powered tailgate. It reports only shut or open, never how far, and is
+     * driven through the register the car's voice assistant uses - the one
+     * command path the ROM's setting wrapper exposes, `voiceCtlBackDoor`, whose
+     * vocabulary is open 1, stop 2, close 3. The write path is *not yet exercised*
+     * on the car: on the day the windows were, the tailgate was parked a hand's
+     * width from a bench.
+     */
+    const val TAILGATE_OPEN = 1
+    const val TAILGATE_STOP = 2
+    const val TAILGATE_CLOSE = 3
+
+    private const val DOOR_CLOSED = 0
+    private const val DOOR_OPEN = 1
+
+    /** Whether the car has a powered tailgate to drive; null until the bus has answered. */
+    fun tailgateFitted(): Boolean? =
+        reading(SETTING, "SET_CAR_BACK_DOOR_ELECTRIC_MODE_DET")?.let { it == 1 }
+
+    /** Open or shut, or null while the car does not know (255, "undefined"). */
+    fun tailgateOpen(): Boolean? = reading(BODYWORK, "BODYWORK_LUGGAGE_DOOR")?.let {
+        when (it) {
+            DOOR_OPEN -> true
+            DOOR_CLOSED -> false
+            else -> null
+        }
+    }
+
+    fun setTailgate(command: Int): Boolean =
+        BydFeatures.writeInt(SETTING, "SET_VOICE_CTRL_BACK_DOOR_SET", command)
+
     // ---- Readouts ----------------------------------------------------------
 
     /**

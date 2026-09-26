@@ -110,6 +110,13 @@ object NavActionIcons {
         NavAction.SUNROOF -> R.drawable.ic_sunroof
         NavAction.SUNSHADE -> R.drawable.ic_sunshade
 
+        NavAction.WINDOW_LEFT_FRONT -> R.drawable.ic_window_lf
+        NavAction.WINDOW_RIGHT_FRONT -> R.drawable.ic_window_rf
+        NavAction.WINDOW_LEFT_REAR -> R.drawable.ic_window_lr
+        NavAction.WINDOW_RIGHT_REAR -> R.drawable.ic_window_rr
+        NavAction.WINDOWS_ALL -> R.drawable.ic_windows_all
+        NavAction.TAILGATE -> R.drawable.ic_tailgate
+
         NavAction.INFO_CLOCK -> R.drawable.ic_info_clock
         NavAction.INFO_DATE -> R.drawable.ic_info_date
         NavAction.INFO_SIGNAL -> R.drawable.ic_info_signal

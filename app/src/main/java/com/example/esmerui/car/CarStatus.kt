@@ -7,7 +7,7 @@ import androidx.compose.runtime.setValue
 import com.example.esmerui.launcher.NavAction
 
 /** What a roof panel is doing, which is what decides its button's next press. */
-enum class RoofMotion { IDLE, OPENING, CLOSING }
+enum class PanelMotion { IDLE, OPENING, CLOSING }
 
 /**
  * One roof panel's position and whether it is travelling.
@@ -23,14 +23,24 @@ enum class RoofMotion { IDLE, OPENING, CLOSING }
  * one has moved anything, and it still has to mean "stop". It is also inferred
  * from the readings, so a panel started on the overhead switch is followed too.
  */
-class RoofPanel {
+class MovingPanel(
+    /**
+     * How long after a command the readings are not to be believed. Zero for
+     * anything that reports its position as it goes. The tailgate reports only
+     * shut or open: it says "open" the moment it unlatches and "shut" only once
+     * it has latched again, so for the seconds in between neither an arrival nor
+     * a stall can be read off it, and a press during that time must still mean
+     * "stop".
+     */
+    private val minTravelMs: Long = 0L,
+) {
 
     @Volatile
     var percent: Int? = null
         private set
 
     @Volatile
-    var motion: RoofMotion = RoofMotion.IDLE
+    var motion: PanelMotion = PanelMotion.IDLE
         private set
 
     /** Where we last sent it, cleared once it arrives or is stopped. */
@@ -55,19 +65,26 @@ class RoofPanel {
 
         if (previous != null && reading != previous) {
             changedAt = now
-            if (motion == RoofMotion.IDLE) {
+            if (motion == PanelMotion.IDLE) {
                 // Moving without us having asked: the overhead switch. Follow it, so
                 // a press still means "stop" rather than starting a second move.
-                motion = if (reading > previous) RoofMotion.OPENING else RoofMotion.CLOSING
+                motion = if (reading > previous) PanelMotion.OPENING else PanelMotion.CLOSING
                 startedAt = now
             }
         }
 
-        if (motion == RoofMotion.IDLE) return
+        if (motion == PanelMotion.IDLE) return
 
+        // A hatch that reports only shut or open has nothing to say until it has
+        // had time to get there; see [minTravelMs].
+        if (now - startedAt < minTravelMs) return
+
+        // "Fully open" is read with some slack: a window reports 98 at the bottom
+        // of its travel, never 100, and without the slack it would count as still
+        // moving until the stall timer gave up on it.
         val arrived = reading == target ||
-            (motion == RoofMotion.OPENING && reading >= CarBus.ROOF_OPEN_PERCENT) ||
-            (motion == RoofMotion.CLOSING && reading <= CarBus.ROOF_CLOSED_PERCENT)
+            (motion == PanelMotion.OPENING && reading >= CarBus.ROOF_OPEN_PERCENT - FULL_OPEN_SLACK) ||
+            (motion == PanelMotion.CLOSING && reading <= CarBus.ROOF_CLOSED_PERCENT)
         // Gone quiet part-way: an obstacle, or someone else's stop. Either way it is
         // no longer moving, so the next press should start it rather than stop it.
         val stalled = now - startedAt > START_GRACE_MS && now - changedAt > STALL_MS
@@ -80,13 +97,13 @@ class RoofPanel {
         target = to
         startedAt = now
         changedAt = now
-        motion = if (to > (percent ?: 0)) RoofMotion.OPENING else RoofMotion.CLOSING
+        motion = if (to > (percent ?: 0)) PanelMotion.OPENING else PanelMotion.CLOSING
     }
 
     fun stopped() = settle()
 
     private fun settle() {
-        motion = RoofMotion.IDLE
+        motion = PanelMotion.IDLE
         target = null
     }
 
@@ -96,6 +113,9 @@ class RoofPanel {
 
         /** The poll runs once a second, so three quiet passes means it has stopped. */
         const val STALL_MS = 3_000L
+
+        /** How short of 100 a panel may stop and still count as fully open; windows read 98 to 100. */
+        const val FULL_OPEN_SLACK = 5
     }
 }
 
@@ -215,9 +235,12 @@ object CarStatus {
 
     private const val HUD_HOLD_MS = 3_000L
 
-    // ---- Roof --------------------------------------------------------------
+    // ---- Roof, windows, tailgate ---------------------------------------------
 
-    /** Set by the bar while a roof control is on screen, exactly like [hudWanted]. */
+    /**
+     * Set by the bar while any travelling panel's control is on screen, exactly
+     * like [hudWanted]. Named for the roof, which was the first of them.
+     */
     @Volatile
     var roofWanted: Boolean = false
 
@@ -227,6 +250,9 @@ object CarStatus {
 
     @Volatile
     var sunshadeFitted: Boolean? = null
+
+    @Volatile
+    var tailgateFitted: Boolean? = null
 
     /**
      * The glass and the blind, each tracking its own position and travel.
@@ -238,9 +264,30 @@ object CarStatus {
      * at 30. What *is* held is the motion, which a press needs to know about
      * before the car has reported anything.
      */
-    val sunroof = RoofPanel()
+    val sunroof = MovingPanel()
 
-    val sunshade = RoofPanel()
+    val sunshade = MovingPanel()
+
+    /** The four side windows, tracked the same way. */
+    val windows: Map<CarBus.CarWindow, MovingPanel> =
+        CarBus.CarWindow.entries.associateWith { MovingPanel() }
+
+    /**
+     * The four together, for the one button that drives them all. Its reading is
+     * the widest open of the four, so it reads 0 only when every window is shut;
+     * its motion is whatever the all-windows press last sent, or whichever
+     * window moved first if the car did it.
+     */
+    val allWindows = MovingPanel()
+
+    /**
+     * The tailgate, which reports shut or open and nothing between - tracked as
+     * 0 or 100, with the travel time a hatch needs before either is believed.
+     */
+    val tailgate = MovingPanel(minTravelMs = TAILGATE_TRAVEL_MS)
+
+    /** A powered hatch takes about this long end to end; measured on none yet. */
+    private const val TAILGATE_TRAVEL_MS = 10_000L
 
     /**
      * Safety net for a pending write that the car never confirms - a refused command
@@ -404,18 +451,33 @@ object CarStatus {
     }
 
     /**
-     * The two roof panels, read only while something is showing them.
+     * The travelling panels - roof, windows, tailgate - read only while something
+     * is showing one of them.
      *
-     * Which panels exist is a single read, wanted once - the settings screen needs
-     * it before any roof control exists to want the percentages.
+     * Which panels exist is a single read each, wanted once - the settings screen
+     * needs it before any such control exists to want the positions.
      */
     private fun readRoof() {
         if (sunroofFitted == null) sunroofFitted = CarBus.sunroofFitted()
         if (sunshadeFitted == null) sunshadeFitted = CarBus.sunshadeFitted()
+        if (tailgateFitted == null) tailgateFitted = CarBus.tailgateFitted()
         if (!roofWanted) return
 
         CarBus.sunroofPercent()?.let { sunroof.observe(it) }
         CarBus.sunshadePercent()?.let { sunshade.observe(it) }
+
+        var widest: Int? = null
+        windows.forEach { (window, panel) ->
+            CarBus.windowPercent(window)?.let { percent ->
+                panel.observe(percent)
+                widest = maxOf(widest ?: percent, percent)
+            }
+        }
+        widest?.let { allWindows.observe(it) }
+
+        CarBus.tailgateOpen()?.let { open ->
+            tailgate.observe(if (open) CarBus.ROOF_OPEN_PERCENT else CarBus.ROOF_CLOSED_PERCENT)
+        }
     }
 
     /** The HUD's switches and levels, read only while something is showing them. */
@@ -471,13 +533,19 @@ object CarStatus {
         NavAction.FAN_GROUP -> fanLabel()
         NavAction.HUD_BRIGHTNESS_GROUP -> hudBrightnessLabel()
         NavAction.HUD_HEIGHT_GROUP -> hudHeightLabel()
-        NavAction.SUNROOF, NavAction.SUNSHADE -> roofLabel(action)
-        else -> ""
+        else -> if (action.isPercent) roofLabel(action) else ""
     }
 
-    fun roofPanel(action: NavAction): RoofPanel? = when (action) {
+    /** The travelling panel behind a button - roof, window or tailgate - or null. */
+    fun roofPanel(action: NavAction): MovingPanel? = when (action) {
         NavAction.SUNROOF -> sunroof
         NavAction.SUNSHADE -> sunshade
+        NavAction.WINDOW_LEFT_FRONT -> windows[CarBus.CarWindow.LEFT_FRONT]
+        NavAction.WINDOW_RIGHT_FRONT -> windows[CarBus.CarWindow.RIGHT_FRONT]
+        NavAction.WINDOW_LEFT_REAR -> windows[CarBus.CarWindow.LEFT_REAR]
+        NavAction.WINDOW_RIGHT_REAR -> windows[CarBus.CarWindow.RIGHT_REAR]
+        NavAction.WINDOWS_ALL -> allWindows
+        NavAction.TAILGATE -> tailgate
         else -> null
     }
 
@@ -486,16 +554,32 @@ object CarStatus {
 
     /** Whether one panel is travelling, which is what makes a press mean "stop". */
     fun roofMoving(action: NavAction): Boolean =
-        roofPanel(action)?.motion?.let { it != RoofMotion.IDLE } ?: false
+        roofPanel(action)?.motion?.let { it != PanelMotion.IDLE } ?: false
 
-    /** Whether the car has the panel this button drives; null while unknown. */
+    /**
+     * Whether the car has the panel this button drives; null while unknown. The
+     * windows are taken as always there - every car on this platform has four.
+     */
     fun roofFitted(action: NavAction): Boolean? = when (action) {
         NavAction.SUNROOF -> sunroofFitted
         NavAction.SUNSHADE -> sunshadeFitted
+        NavAction.TAILGATE -> tailgateFitted
         else -> null
     }
 
-    fun roofLabel(action: NavAction): String = roofPercent(action)?.let { "$it%" } ?: "--"
+    /**
+     * The value under the icon. A percentage for anything that reports one; the
+     * tailgate only knows shut or open, and says so in a word rather than a fake
+     * 0% or 100%.
+     */
+    fun roofLabel(action: NavAction): String {
+        val percent = roofPercent(action) ?: return "--"
+        return when {
+            action != NavAction.TAILGATE -> "$percent%"
+            percent > CarBus.ROOF_CLOSED_PERCENT -> "OPEN"
+            else -> "SHUT"
+        }
+    }
 
     // The HUD previews mirror the climate ones below: move the cached value on the
     // press, hold it while the car catches up, and let a refusal re-sync it.

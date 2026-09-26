@@ -39,6 +39,7 @@ enum class NavActionGroup(val label: String) {
     SEATS("Seats"),
     HUD("Head-up display"),
     ROOF("Roof"),
+    BODY("Windows and tailgate"),
     INFO("Information"),
 }
 
@@ -57,9 +58,10 @@ enum class NavAction(
     /** Shows a value instead of doing something; nothing happens when pressed. */
     val isReadout: Boolean = false,
     /**
-     * Pressable *and* carrying a live percentage - the roof panels, which are the
-     * one thing on the bar that is neither a switch nor a number but both: a
-     * press sends it somewhere, and how far it has got is the point.
+     * Pressable *and* carrying a live position - the roof panels, the windows and
+     * the tailgate, which are the one kind of thing on the bar that is neither a
+     * switch nor a number but both: a press sends it somewhere, and how far it
+     * has got is the point.
      */
     val isPercent: Boolean = false,
 ) {
@@ -125,6 +127,19 @@ enum class NavAction(
     SUNSHADE("Sunshade", NavActionGroup.ROOF, needsCar = true, isPercent = true),
 
     /**
+     * The side glass and the tailgate, pressed the same three-way way as the roof:
+     * off, stop, back. A window reports how far down it is; the tailgate reports
+     * only shut or open, so its button shows that word instead of a number. Left
+     * and right are the car's own sides, not the driver's.
+     */
+    WINDOW_LEFT_FRONT("Left front window", NavActionGroup.BODY, needsCar = true, isPercent = true),
+    WINDOW_RIGHT_FRONT("Right front window", NavActionGroup.BODY, needsCar = true, isPercent = true),
+    WINDOW_LEFT_REAR("Left rear window", NavActionGroup.BODY, needsCar = true, isPercent = true),
+    WINDOW_RIGHT_REAR("Right rear window", NavActionGroup.BODY, needsCar = true, isPercent = true),
+    WINDOWS_ALL("All windows", NavActionGroup.BODY, needsCar = true, isPercent = true),
+    TAILGATE("Tailgate", NavActionGroup.BODY, needsCar = true, isPercent = true),
+
+    /**
      * Readouts: an icon and a live value, pressed for nothing. The clock and date
      * come from the head unit; the rest are the car's own signals.
      */
@@ -152,8 +167,12 @@ enum class NavAction(
     /** The head-up display controls, which share one poll gate and one colour rule. */
     val isHud: Boolean get() = group == NavActionGroup.HUD
 
-    /** The roof panels, which share a poll gate the same way the HUD controls do. */
-    val isRoof: Boolean get() = group == NavActionGroup.ROOF
+    /**
+     * Everything that travels - roof panels, windows, tailgate - which share one
+     * poll gate the way the HUD controls do. The name predates the windows; the
+     * roof was the first of them.
+     */
+    val isRoof: Boolean get() = isPercent
 
     /**
      * The single-step actions a stepper is built from, down then up, or null for
@@ -171,7 +190,7 @@ enum class NavAction(
 
     /**
      * The caption under a live value, so a bare number is not ambiguous. Shared by
-     * the steppers and the roof buttons, which both draw a value with a label
+     * the steppers and the travelling panels, which both draw a value with a label
      * tucked under it.
      */
     val stepperCaption: String
@@ -182,6 +201,12 @@ enum class NavAction(
             HUD_HEIGHT_GROUP -> "HUD HEIGHT"
             SUNROOF -> "ROOF"
             SUNSHADE -> "SHADE"
+            WINDOW_LEFT_FRONT -> "L FRONT"
+            WINDOW_RIGHT_FRONT -> "R FRONT"
+            WINDOW_LEFT_REAR -> "L REAR"
+            WINDOW_RIGHT_REAR -> "R REAR"
+            WINDOWS_ALL -> "WINDOWS"
+            TAILGATE -> "TAILGATE"
             else -> ""
         }
 

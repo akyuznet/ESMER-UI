@@ -1,0 +1,31 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!--
+      An SUV from the side, nose to the left, with the hatch swung up off the rear
+      of the roof. The raised hatch is the whole message; the body underneath is
+      kept plain so the lifted line reads at bar size.
+    -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M2.5,17.5 V13 L6,12 L8.8,7.5 H15.5 V17.5 Z" />
+    <!-- The hatch, up and out of the way. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:pathData="M15.5,7.5 L21.3,2.8" />
+    <!-- Wheels. -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.6"
+        android:pathData="M4.5,18.2 A2,2 0 1 0 8.5,18.2 A2,2 0 1 0 4.5,18.2 Z M10.5,18.2 A2,2 0 1 0 14.5,18.2 A2,2 0 1 0 10.5,18.2 Z" />
+</vector>

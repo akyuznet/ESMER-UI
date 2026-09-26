@@ -44,7 +44,13 @@ object NavActionState {
         NavAction.HUD_ADAS,
         NavAction.HUD_THEME,
         NavAction.SUNROOF,
-        NavAction.SUNSHADE -> true
+        NavAction.SUNSHADE,
+        NavAction.WINDOW_LEFT_FRONT,
+        NavAction.WINDOW_RIGHT_FRONT,
+        NavAction.WINDOW_LEFT_REAR,
+        NavAction.WINDOW_RIGHT_REAR,
+        NavAction.WINDOWS_ALL,
+        NavAction.TAILGATE -> true
 
         else -> false
     }

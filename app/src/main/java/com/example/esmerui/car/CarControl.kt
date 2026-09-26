@@ -100,7 +100,7 @@ object CarControl {
     /** True when [message] reports a failure rather than a new value. */
     fun isFailure(message: String): Boolean =
         message == REFUSED || message == UNAVAILABLE || message == HUD_UNAVAILABLE ||
-            message == ROOF_UNAVAILABLE
+            message.endsWith(NOT_ANSWERING)
 
     /** Falls back to reading the car only when the cache has never been filled. */
     fun nudgeTemperature(delta: Int): String {
@@ -386,7 +386,7 @@ object CarControl {
         return setHudHeight(base + delta)
     }
 
-    // ---- Roof --------------------------------------------------------------
+    // ---- Roof, windows, tailgate ---------------------------------------------
 
     /**
      * One button, three meanings, the way the overhead switch behaves: press to
@@ -402,39 +402,102 @@ object CarControl {
      * is the useful thing to show; claiming the commanded value straight away
      * would read 100% with the glass barely moving.
      */
-    fun toggleSunroof(): String = pressRoof(
+    fun toggleSunroof(): String = pressPanel(
         label = "Sunroof",
         panel = CarStatus.sunroof,
         read = { CarBus.sunroofPercent() },
-    ) { CarBus.setSunroofPercent(it) }
+        open = { CarBus.setSunroofPercent(CarBus.ROOF_OPEN_PERCENT) },
+        stop = { CarBus.setSunroofPercent(CarBus.ROOF_STOP) },
+        close = { CarBus.setSunroofPercent(CarBus.ROOF_CLOSED_PERCENT) },
+    )
 
-    fun toggleSunshade(): String = pressRoof(
+    fun toggleSunshade(): String = pressPanel(
         label = "Sunshade",
         panel = CarStatus.sunshade,
         read = { CarBus.sunshadePercent() },
-    ) { CarBus.setSunshadePercent(it) }
+        open = { CarBus.setSunshadePercent(CarBus.ROOF_OPEN_PERCENT) },
+        stop = { CarBus.setSunshadePercent(CarBus.ROOF_STOP) },
+        close = { CarBus.setSunshadePercent(CarBus.ROOF_CLOSED_PERCENT) },
+    )
 
-    private inline fun pressRoof(
+    /**
+     * The windows take commands rather than positions, so the three presses map
+     * straight onto the door module's own vocabulary. Same shape as the roof
+     * otherwise: a window part way down is sent up, never further down.
+     */
+    fun toggleWindow(window: CarBus.CarWindow): String = pressPanel(
+        label = windowLabel(window),
+        panel = CarStatus.windows.getValue(window),
+        read = { CarBus.windowPercent(window) },
+        open = { CarBus.setWindow(window, CarBus.WINDOW_OPEN) },
+        stop = { CarBus.setWindow(window, CarBus.WINDOW_STOP) },
+        close = { CarBus.setWindow(window, CarBus.WINDOW_CLOSE) },
+    )
+
+    /**
+     * All four at once. The position that decides which way they go is the widest
+     * open of the four, so a single cracked window makes the press mean "close
+     * everything", which is the press a hand wants when it is raining.
+     */
+    fun toggleAllWindows(): String = pressPanel(
+        label = "Windows",
+        panel = CarStatus.allWindows,
+        read = { CarBus.CarWindow.entries.mapNotNull { CarBus.windowPercent(it) }.maxOrNull() },
+        open = { allWindows(CarBus.WINDOW_OPEN) },
+        stop = { allWindows(CarBus.WINDOW_STOP) },
+        close = { allWindows(CarBus.WINDOW_CLOSE) },
+    )
+
+    /** Every window gets the command even if an earlier one refuses; one refusal fails the press. */
+    private fun allWindows(command: Int): Boolean =
+        CarBus.CarWindow.entries.map { CarBus.setWindow(it, command) }.all { it }
+
+    /**
+     * The tailgate reports no position, only shut or open, so it is tracked as 0
+     * or 100 and its panel is given the travel time a hatch needs before either
+     * reading is trusted - see [MovingPanel].
+     */
+    fun toggleTailgate(): String = pressPanel(
+        label = "Tailgate",
+        panel = CarStatus.tailgate,
+        read = { CarBus.tailgateOpen()?.let { if (it) CarBus.ROOF_OPEN_PERCENT else CarBus.ROOF_CLOSED_PERCENT } },
+        open = { CarBus.setTailgate(CarBus.TAILGATE_OPEN) },
+        stop = { CarBus.setTailgate(CarBus.TAILGATE_STOP) },
+        close = { CarBus.setTailgate(CarBus.TAILGATE_CLOSE) },
+    )
+
+    private fun windowLabel(window: CarBus.CarWindow): String = when (window) {
+        CarBus.CarWindow.LEFT_FRONT -> "Left front window"
+        CarBus.CarWindow.RIGHT_FRONT -> "Right front window"
+        CarBus.CarWindow.LEFT_REAR -> "Left rear window"
+        CarBus.CarWindow.RIGHT_REAR -> "Right rear window"
+    }
+
+    private inline fun pressPanel(
         label: String,
-        panel: RoofPanel,
+        panel: MovingPanel,
         read: () -> Int?,
-        write: (Int) -> Boolean,
+        open: () -> Boolean,
+        stop: () -> Boolean,
+        close: () -> Boolean,
     ): String {
-        // Nothing has polled this panel yet - pressed from the grid on a bar that
-        // carries no roof button, say - so ask the car before deciding anything.
-        if (panel.percent == null) read()?.let { panel.observe(it) }
-        val position = panel.percent ?: return ROOF_UNAVAILABLE
+        // Ask the car where the panel is before deciding anything, every time. The
+        // poll keeps the panel current while its button is on screen, but a press
+        // can also arrive from somewhere that polls nothing, and a decision made on
+        // a position from minutes ago sends a shut window "up" - a single read
+        // costs a few milliseconds and settles it.
+        read()?.let { panel.observe(it) }
+        val position = panel.percent ?: return label + NOT_ANSWERING
 
-        if (panel.motion != RoofMotion.IDLE) {
-            if (!write(CarBus.ROOF_STOP)) return REFUSED
+        if (panel.motion != PanelMotion.IDLE) {
+            if (!stop()) return REFUSED
             panel.stopped()
-            return "$label stopped at $position%"
+            return "$label stopped"
         }
 
         val opening = position <= CarBus.ROOF_CLOSED_PERCENT
-        val target = if (opening) CarBus.ROOF_OPEN_PERCENT else CarBus.ROOF_CLOSED_PERCENT
-        if (!write(target)) return REFUSED
-        panel.commanded(target)
+        if (!(if (opening) open() else close())) return REFUSED
+        panel.commanded(if (opening) CarBus.ROOF_OPEN_PERCENT else CarBus.ROOF_CLOSED_PERCENT)
         return if (opening) "$label opening" else "$label closing"
     }
 
@@ -449,6 +512,7 @@ object CarControl {
 
     private const val UNAVAILABLE = "OverDrive not reachable"
     private const val HUD_UNAVAILABLE = "HUD not answering"
-    private const val ROOF_UNAVAILABLE = "Roof not answering"
+    /** Suffix for a travelling panel the car has not reported; prefixed with its name. */
+    private const val NOT_ANSWERING = " not answering"
     private const val REFUSED = "Car refused the command"
 }
