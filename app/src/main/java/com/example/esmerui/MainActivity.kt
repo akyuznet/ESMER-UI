@@ -101,18 +101,17 @@ private const val RELOAD_SETTLE_MS = 400L
 /**
  * Space to leave clear on [position], or zero when no bar is drawn there.
  *
- * Overscan has already shrunk this window by whatever it reserved on that edge, so
- * only the part of the bar it did not cover needs padding here. The two differ
- * per edge: where an app would reserve the system bar's own strip regardless, we
- * ask overscan for the excess only, which leaves the rest for the window to avoid.
- * Padding the full thickness on a covered edge would inset the grid twice; padding
- * nothing on an uncovered one puts the grid under the bar.
+ * This window is already kept off whatever overscan reserved on that edge, and off
+ * the system bar's own inset where our bar sits over a visible one; only the part
+ * of the bar neither covers needs padding here. Padding the full thickness on a
+ * covered edge would inset the grid twice; padding nothing on an uncovered one
+ * puts the grid under the bar.
  */
 private fun navInset(settings: LauncherSettings, position: NavPosition, density: Float): Dp {
     val bar = settings.navBar(position)
     // A folded bar leaves only a tab in the corner, which the grid can sit beside.
     if (!settings.navBarOccupiesEdge(position)) return 0.dp
-    val covered = (OverscanController.reservedPx(position) / density).toInt()
+    val covered = (OverscanController.coveredPx(position) / density).toInt()
     val uncovered = bar.thicknessDp - covered
     return if (uncovered <= 0) 0.dp else (uncovered + 24).dp
 }

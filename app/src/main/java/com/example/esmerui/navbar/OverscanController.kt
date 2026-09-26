@@ -24,6 +24,18 @@ import com.example.esmerui.launcher.NavPosition
  *
  * The bars themselves opt back into the reserved region with
  * FLAG_LAYOUT_IN_OVERSCAN, otherwise they would be inset along with everything else.
+ *
+ * Only the *excess* of a top or bottom bar over the head unit's own bar is ever
+ * reserved here. Measured on the unit: overscan is *added* to the stable insets
+ * rather than merged with them, and the stable insets keep the system bars' strips
+ * whether those bars are shown or hidden. So an app that lays out against the
+ * stable insets - Android Auto, Waze, every BYD app - already holds the strip
+ * clear, and reserving it again cost each of them a dead band the height of the
+ * bar. The strip itself is handled by the bar service instead: where it can, it
+ * leaves the system bar *visible* under ours, so every app is inset by a real bar
+ * and lays out the same way whichever insets it reads. Where it cannot, the system
+ * bar is hidden and apps reading the content insets draw under ours - the state
+ * this unit is in until the accessibility service connects.
  */
 object OverscanController {
 
@@ -37,69 +49,6 @@ object OverscanController {
     var active by mutableStateOf(false)
         private set
 
-    /**
-     * Apps that lay out against the *stable* insets, and so already hold themselves
-     * clear of the strips the head unit's own bars would have occupied.
-     *
-     * Reserving those strips again for them books the edge twice - overscan is
-     * added to the stable insets rather than merged with them - and the second
-     * helping shows as a band of the app's own background between it and our bar:
-     * Waze's map stopping short, Android Auto's a strip of grey. Everything else
-     * lays out against the content insets, sees nothing reserved on an edge whose
-     * system bar is hidden, and draws straight under us.
-     *
-     * A list, because an app cannot be asked which insets it honours. These were
-     * each measured on the unit, one screenshot per setting.
-     *
-     * Android Auto (BYD's projection sink) is here, and was once deliberately kept
-     * off. Measured again on 26 Sep 2026 with the service that drives this path
-     * actually bound: reserved in full it shows a black band the height of the
-     * status bar under our top bar, another above our bottom bar, and its top row
-     * of controls is clipped; reserved reduced it fills the space between the bars
-     * exactly. The earlier note was taken while the accessibility service had been
-     * dead since an install, so the per-app switch was never being applied and the
-     * two settings compared were not the two they seemed to be.
-     *
-     * Chrome is the counter-example and is what the list is *not* for: reserved
-     * reduced, its tab strip sits under our top bar.
-     */
-    private val STABLE_INSET_APPS = setOf(
-        "com.waze",
-        "com.byd.androidauto",
-    )
-
-    /**
-     * Packages that come forward without being the app you are looking at - a
-     * dialog, a toast, our own bars. Taking these as the foreground would flip the
-     * reservation underneath whatever is really on screen.
-     */
-    private val TRANSIENT_PACKAGES = setOf(
-        "android",
-        "com.android.systemui",
-        "com.example.esmerui",
-    )
-
-    @Volatile
-    private var foreground: String? = null
-
-    private fun wantsReduced(pkg: String?): Boolean = pkg != null && pkg in STABLE_INSET_APPS
-
-    /**
-     * Records the app that just came forward, and answers whether the caller should
-     * re-reserve the edges.
-     *
-     * True for any change of app, not only one that changes the policy. Re-syncing
-     * costs a single binder call and skips the relayout when the numbers come out
-     * the same, whereas comparing policies alone leaves no way back from a
-     * reservation that has drifted - the service rebuilding while a reduced app was
-     * in front, say, which would otherwise stay wrong until a third app appeared.
-     */
-    fun onForeground(pkg: String?): Boolean {
-        if (pkg == null || pkg in TRANSIENT_PACKAGES || pkg == foreground) return false
-        foreground = pkg
-        return true
-    }
-
     /** The overscan currently in force, so bars can convert screen to frame coords. */
     var appliedLeft = 0
         private set
@@ -109,6 +58,10 @@ object OverscanController {
         private set
     var appliedBottom = 0
         private set
+
+    /** The system bar strip under our bar on each horizontal edge, when it is visible. */
+    private var coveredTop = 0
+    private var coveredBottom = 0
 
     /**
      * How much of [position]'s edge the system is holding clear for us, in pixels.
@@ -124,6 +77,18 @@ object OverscanController {
         NavPosition.BOTTOM -> appliedBottom
     }
 
+    /**
+     * How much of [position]'s edge an ordinary window is kept off altogether - the
+     * overscan plus, where our bar sits over a *visible* system bar, that bar's own
+     * inset, which the window already honours. What is left of the bar beyond this
+     * is the window's own business to avoid.
+     */
+    fun coveredPx(position: NavPosition): Int = reservedPx(position) + when (position) {
+        NavPosition.TOP -> coveredTop
+        NavPosition.BOTTOM -> coveredBottom
+        else -> 0
+    }
+
     /** Hands the whole screen back to apps. */
     fun clear(): Boolean = setOverscan(0, 0, 0, 0).also {
         active = false
@@ -131,28 +96,28 @@ object OverscanController {
         appliedTop = 0
         appliedRight = 0
         appliedBottom = 0
+        coveredTop = 0
+        coveredBottom = 0
     }
 
-    /** Reserves each edge occupied by a full-width bar and frees the rest. */
-    fun sync(context: Context): Boolean {
+    /**
+     * Reserves the excess of each full-width bar over the strip apps already keep
+     * clear, and frees the rest.
+     *
+     * [covering] names the horizontal edges whose system bar is being left visible
+     * under ours; on those, as on a hidden one, the bar's strip is already off
+     * limits to apps and only what our bar adds beyond it is asked for.
+     */
+    fun sync(context: Context, covering: Set<NavPosition>): Boolean {
         val settings = LauncherSettings.get(context)
         val density = context.resources.displayMetrics.density
 
-        // Apps that lay out against stable insets - Android Auto among them - always
-        // reserve the system bars' heights, whether or not those bars are actually
-        // shown. Hiding them with immersive mode does not reclaim those strips, so
-        // reserving the full bar thickness on top of that would book the edge twice
-        // and leave a dead band inside the app. Only ask for the excess.
-        val reservedBottom = if (SystemBarController.isHidden(context)) {
-            systemBarHeight(context, "navigation_bar_height")
-        } else {
-            0
-        }
-        val reservedTop = if (SystemBarController.isStatusHidden(context)) {
-            systemBarHeight(context, "status_bar_height")
-        } else {
-            0
-        }
+        val navHeight = systemBarHeight(context, "navigation_bar_height")
+        val statusHeight = systemBarHeight(context, "status_bar_height")
+        val stripBottom =
+            if (SystemBarController.isHidden(context) || NavPosition.BOTTOM in covering) navHeight else 0
+        val stripTop =
+            if (SystemBarController.isStatusHidden(context) || NavPosition.TOP in covering) statusHeight else 0
 
         fun reserved(position: NavPosition): Int {
             val bar = settings.navBar(position)
@@ -165,32 +130,17 @@ object OverscanController {
             // back - the two have to agree or the app's edge and the bar's edge
             // land in different places.
             val minimum = when (position) {
-                NavPosition.BOTTOM -> reservedBottom
-                NavPosition.TOP -> reservedTop
+                NavPosition.BOTTOM -> stripBottom
+                NavPosition.TOP -> stripTop
                 else -> 0
             }
             return maxOf(thickness, minimum)
         }
 
-        /**
-         * What to take off the top and bottom for the hidden system bar.
-         *
-         * Measured on the unit: overscan is *added* to the stable insets rather
-         * than merging with them. Asking for the bar's whole thickness gives the
-         * content insets every ordinary app lays out against - which is what stops
-         * an app drawing under our bar - but costs a stable-inset app a dead band
-         * the size of the bar the head unit is no longer drawing. Subtracting is
-         * the other side of that trade, and leaves most apps underlapped.
-         */
-        fun discount(position: NavPosition): Int =
-            if (settings.navBarReservesFull(position) && !wantsReduced(foreground)) 0 else 1
-
         val left = reserved(NavPosition.LEFT)
         val right = reserved(NavPosition.RIGHT)
-        val top = (reserved(NavPosition.TOP) - reservedTop * discount(NavPosition.TOP))
-            .coerceAtLeast(0)
-        val bottom = (reserved(NavPosition.BOTTOM) - reservedBottom * discount(NavPosition.BOTTOM))
-            .coerceAtLeast(0)
+        val top = (reserved(NavPosition.TOP) - stripTop).coerceAtLeast(0)
+        val bottom = (reserved(NavPosition.BOTTOM) - stripBottom).coerceAtLeast(0)
 
         val applied = setOverscan(left, top, right, bottom)
         active = applied && (left or top or right or bottom) != 0
@@ -198,6 +148,8 @@ object OverscanController {
         appliedTop = if (applied) top else 0
         appliedRight = if (applied) right else 0
         appliedBottom = if (applied) bottom else 0
+        coveredTop = if (NavPosition.TOP in covering) statusHeight else 0
+        coveredBottom = if (NavPosition.BOTTOM in covering) navHeight else 0
         return applied
     }
 

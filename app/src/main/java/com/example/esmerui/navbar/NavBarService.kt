@@ -52,17 +52,30 @@ import com.example.esmerui.launcher.NavLayout
 import com.example.esmerui.launcher.NavPosition
 
 /**
- * Hosts the custom navigation bar in a TYPE_APPLICATION_OVERLAY window.
+ * Hosts the custom navigation bars.
  *
- * Overlay windows sit at a lower window layer than TYPE_NAVIGATION_BAR, so this
- * bar cannot be drawn over the head unit's own bar - it is instead placed just
- * clear of it, and only takes that strip once the system bar is hidden.
+ * While the accessibility service is connected the bars are its windows, of type
+ * TYPE_ACCESSIBILITY_OVERLAY, which the platform layers above the status and
+ * navigation bars. So where the user asked for a system bar to be replaced, it is
+ * left *visible* and ours is drawn over it: every app is then inset by a real bar,
+ * and lays out the same whether it reads the content insets or the stable ones.
+ * That is the one arrangement in which Android Auto and Chrome both fit, measured
+ * on the unit on 26 Sep 2026 - with the system bar hidden instead, apps reading
+ * the stable insets held the strip clear anyway and got it reserved a second
+ * time, while apps reading the content insets got nothing and drew under us.
+ *
+ * Without that host the bars are TYPE_APPLICATION_OVERLAY windows, which sit
+ * below the system bars, so the system bar has to be hidden for ours to take the
+ * strip, and apps reading the content insets draw under it until the service
+ * connects. Every window is tracked with the manager that added it, because one
+ * host's windows cannot be removed through the other.
  */
 class NavBarService : Service() {
 
     private lateinit var windowManager: WindowManager
     private lateinit var settings: LauncherSettings
     private val barViews = mutableMapOf<NavPosition, View>()
+    private val barHosts = mutableMapOf<View, WindowManager>()
     private var accessibilityObserver: ContentObserver? = null
 
     /** Whether the system is reserving edges for us; drives the launcher's own inset. */
@@ -293,13 +306,6 @@ class NavBarService : Service() {
             NavAction.from(intent.getStringExtra(EXTRA_ACTION))?.let { perform(it) }
             return START_STICKY
         }
-        // A different app came forward and wants a different edge reserved. Only the
-        // reservation changes; rebuilding the bars for an app switch would throw away
-        // every view and every readout several times a minute.
-        if (intent?.action == ACTION_RESERVE) {
-            reserveEdges()
-            return START_STICKY
-        }
         // Debug only, from BusWatch: run the last rung of the accessibility repair
         // on demand. A path that only executes when something is already broken is
         // otherwise impossible to see working.
@@ -337,7 +343,7 @@ class NavBarService : Service() {
 
         // Keep the reserved screen edges matching the bars that are actually up,
         // so apps are never asked to make room for a bar that is not there.
-        overscanApplied = OverscanController.sync(this)
+        overscanApplied = OverscanController.sync(this, coveredEdges())
 
         val configs = settings.renderableNavBars
         // No bars is no longer the same as nothing to do: the home grid can carry
@@ -347,13 +353,19 @@ class NavBarService : Service() {
             return
         }
 
+        // One host for the whole rebuild, so the windows and the type in their
+        // params cannot come apart if the accessibility service goes mid-way.
+        val host = overlayHost()
         configs.forEach { config ->
             // A folded bar is drawn as its restore tab, nothing else.
             val folded = settings.navBarCollapsed(config.position)
             val view = if (folded) restoreTab(config) else buildBar(config)
             val params = if (folded) tabParams(config.position) else layoutParams(config)
-            runCatching { windowManager.addView(view, params) }
-                .onSuccess { barViews[config.position] = view }
+            runCatching { host.addView(view, params) }
+                .onSuccess {
+                    barViews[config.position] = view
+                    barHosts[view] = host
+                }
                 .onFailure {
                     Toast.makeText(
                         this,
@@ -421,8 +433,9 @@ class NavBarService : Service() {
 
     /** Only writes when the platform disagrees, so an unchanged setting is untouched. */
     private fun applySystemBars() {
-        val wantNav = settings.navHideSystemBar
-        val wantStatus = settings.navHideStatusBar
+        // A system bar we sit over stays visible: it is what insets the apps.
+        val wantNav = settings.navHideSystemBar && !covers(NavPosition.BOTTOM)
+        val wantStatus = settings.navHideStatusBar && !covers(NavPosition.TOP)
         if (SystemBarController.isHidden(this) == wantNav &&
             SystemBarController.isStatusHidden(this) == wantStatus
         ) {
@@ -446,7 +459,7 @@ class NavBarService : Service() {
             OverscanController.appliedRight,
             OverscanController.appliedBottom,
         )
-        overscanApplied = OverscanController.sync(this)
+        overscanApplied = OverscanController.sync(this, coveredEdges())
         val after = intArrayOf(
             OverscanController.appliedLeft,
             OverscanController.appliedTop,
@@ -459,13 +472,19 @@ class NavBarService : Service() {
             val view = barViews[config.position] ?: return@forEach
             val folded = settings.navBarCollapsed(config.position)
             val params = if (folded) tabParams(config.position) else layoutParams(config)
-            runCatching { windowManager.updateViewLayout(view, params) }
+            val host = barHosts[view] ?: windowManager
+            runCatching { host.updateViewLayout(view, params) }
         }
     }
 
     private fun removeBars() {
-        barViews.values.forEach { runCatching { windowManager.removeView(it) } }
+        // A window hosted by the accessibility service is already gone if that
+        // service died; the failure is swallowed and the map cleared either way.
+        barViews.values.forEach { view ->
+            runCatching { (barHosts[view] ?: windowManager).removeView(view) }
+        }
         barViews.clear()
+        barHosts.clear()
         pollHandler.removeCallbacks(statusPoll)
         pollHandler.removeCallbacks(blink)
         blinkScheduled = false
@@ -791,7 +810,7 @@ class NavBarService : Service() {
         }
 
         return WindowManager.LayoutParams(width, height, 0, 0, 0).apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            type = overlayType()
             this.flags = flags
             format = PixelFormat.TRANSLUCENT
             gravity = Gravity.TOP or Gravity.START
@@ -809,7 +828,7 @@ class NavBarService : Service() {
         val params = WindowManager.LayoutParams(
             if (position.isHorizontal) WindowManager.LayoutParams.WRAP_CONTENT else thickness,
             if (position.isHorizontal) thickness else WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
+            overlayType(),
             flags,
             PixelFormat.TRANSLUCENT,
         )
@@ -935,7 +954,7 @@ class NavBarService : Service() {
             else -> screen.y - systemBottomInset() - edgeReserved(NavPosition.BOTTOM) - height
         }
         return WindowManager.LayoutParams(width, height, 0, 0, 0).apply {
-            type = WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+            type = overlayType()
             flags = WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                 WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
                 WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS or
@@ -962,27 +981,75 @@ class NavBarService : Service() {
         val thickness = dp(settings.navBar(position).thicknessDp)
         val reserved = when (position) {
             NavPosition.BOTTOM ->
-                if (SystemBarController.isHidden(this)) systemBar(NAV_BAR_DIMEN) else 0
+                if (bottomStripIsOurs()) systemBar(NAV_BAR_DIMEN) else 0
 
             NavPosition.TOP ->
-                if (SystemBarController.isStatusHidden(this)) systemBar(STATUS_BAR_DIMEN) else 0
+                if (topStripIsOurs()) systemBar(STATUS_BAR_DIMEN) else 0
 
             else -> 0
         }
         return maxOf(thickness, reserved)
     }
 
+    /**
+     * Whether the strip the head unit's bar occupies is ours to stand in - either
+     * because that bar is hidden, or because ours is drawn over it.
+     */
+    private fun bottomStripIsOurs(): Boolean =
+        SystemBarController.isHidden(this) || covers(NavPosition.BOTTOM)
+
+    private fun topStripIsOurs(): Boolean =
+        SystemBarController.isStatusHidden(this) || covers(NavPosition.TOP)
+
     private fun systemBottomInset(): Int =
-        if (SystemBarController.isHidden(this)) 0 else systemBar(NAV_BAR_DIMEN)
+        if (bottomStripIsOurs()) 0 else systemBar(NAV_BAR_DIMEN)
 
     /**
-     * The strip the head unit's status bar occupies, or nothing once it is hidden.
+     * The strip the head unit's status bar occupies, or nothing once it is ours.
      *
      * Reserving it unconditionally left a dead band above a top bar with no status
      * bar left to fill it.
      */
     private fun systemTopInset(): Int =
-        if (SystemBarController.isStatusHidden(this)) 0 else systemBar(STATUS_BAR_DIMEN)
+        if (topStripIsOurs()) 0 else systemBar(STATUS_BAR_DIMEN)
+
+    /**
+     * Where a window goes: through the accessibility service while it is
+     * connected, so the window may sit above the system bars, otherwise through
+     * our own window manager, which cannot.
+     */
+    private fun overlayHost(): WindowManager =
+        NavAccessibilityService.overlayWindowManager() ?: windowManager
+
+    private fun overlayType(): Int =
+        if (NavAccessibilityService.overlayWindowManager() != null) {
+            WindowManager.LayoutParams.TYPE_ACCESSIBILITY_OVERLAY
+        } else {
+            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+        }
+
+    /**
+     * Whether our bar on [position] sits over the head unit's own bar, left
+     * visible beneath it, rather than replacing a hidden one.
+     *
+     * Only with the accessibility host - an app overlay draws under the system
+     * bars - and only where the user asked for the system bar to be replaced and a
+     * full-width bar of ours is actually up. A folded bar gives the edge back, and
+     * then the system bar is hidden as before so apps get the whole of it.
+     */
+    private fun covers(position: NavPosition): Boolean {
+        if (NavAccessibilityService.overlayWindowManager() == null) return false
+        val wanted = when (position) {
+            NavPosition.TOP -> settings.navHideStatusBar
+            NavPosition.BOTTOM -> settings.navHideSystemBar
+            else -> return false
+        }
+        return wanted && settings.navBarOccupiesEdge(position) &&
+            settings.navBar(position).layout == NavLayout.FULL_WIDTH
+    }
+
+    private fun coveredEdges(): Set<NavPosition> =
+        NavPosition.entries.filterTo(mutableSetOf()) { covers(it) }
 
     @Suppress("DEPRECATION")
     private fun realScreenSize(): Point =
@@ -2157,7 +2224,6 @@ class NavBarService : Service() {
 
         const val ACTION_STOP = "com.example.esmerui.NAVBAR_STOP"
         const val ACTION_PERFORM = "com.example.esmerui.NAVBAR_PERFORM"
-        const val ACTION_RESERVE = "com.example.esmerui.NAVBAR_RESERVE"
         const val ACTION_REPAIR = "com.example.esmerui.NAVBAR_REPAIR"
         const val EXTRA_ACTION = "action"
 
@@ -2166,15 +2232,6 @@ class NavBarService : Service() {
             runCatching {
                 context.startService(
                     Intent(context, NavBarService::class.java).setAction(ACTION_REPAIR)
-                )
-            }
-        }
-
-        /** Asks the bar to re-reserve the edges for whatever is now in front. */
-        fun reserveEdges(context: Context) {
-            runCatching {
-                context.startService(
-                    Intent(context, NavBarService::class.java).setAction(ACTION_RESERVE)
                 )
             }
         }

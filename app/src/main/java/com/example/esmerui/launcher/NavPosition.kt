@@ -9,17 +9,6 @@ enum class NavPosition(val label: String) {
 
     val isHorizontal: Boolean get() = this == BOTTOM || this == TOP
 
-    /**
-     * Whether reserving this edge can be double-booked against the head unit's own
-     * hidden bars, and so whether the "keep apps clear" choice means anything here.
-     *
-     * Only the top and bottom. Hiding a system bar does not reclaim the strip it
-     * would have occupied, and overscan is added to that rather than merged with
-     * it - but there is no system bar down the sides, so a left or right bar has
-     * nothing to collide with and is always reserved in full.
-     */
-    val canDoubleBook: Boolean get() = isHorizontal
-
     companion object {
         fun from(name: String?): NavPosition =
             entries.firstOrNull { it.name == name } ?: BOTTOM

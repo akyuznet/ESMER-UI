@@ -177,18 +177,6 @@ class LauncherSettings private constructor(context: Context) {
     private var navHideStatusState by mutableStateOf(
         prefs.getBoolean(KEY_NAV_HIDE_STATUS, false)
     )
-    private var navReserveFullState by mutableStateOf(loadReserveFull())
-
-    /**
-     * Seeded from the old single switch, so a unit that had it turned off keeps
-     * that for both edges until one of them is set on its own.
-     */
-    private fun loadReserveFull(): Set<NavPosition> {
-        val legacy = prefs.getBoolean(KEY_NAV_RESERVE_FULL, true)
-        return NavPosition.entries.filterTo(mutableSetOf()) {
-            prefs.getBoolean(navKey(it, SUFFIX_RESERVE_FULL), legacy)
-        }
-    }
     private var navBarsState by mutableStateOf(loadNavBars())
 
     /**
@@ -215,32 +203,6 @@ class LauncherSettings private constructor(context: Context) {
             navHideStatusState = value
             prefs.edit().putBoolean(KEY_NAV_HIDE_STATUS, value).apply()
         }
-
-    /**
-     * Reserve this bar's whole thickness from apps, rather than only the part the
-     * head unit's own bar was not already holding back.
-     *
-     * The two cannot both be had, and the choice is per edge because the two cost
-     * different things - apps drawing under the top bar hide readouts, which are
-     * glanced at; under the bottom bar they hide buttons, which are pressed.
-     * Hiding a system bar does not reclaim the strip it would have occupied: apps
-     * that lay out against the *stable* insets go on avoiding it either way, and
-     * anything reserved here is added to that, costing them a dead band the width
-     * of the hidden bar. Apps that lay out against the *content* insets, which is
-     * most of them, see nothing reserved on a hidden edge and draw right under us.
-     *
-     * Only meaningful where [NavPosition.canDoubleBook]; the sides are always
-     * reserved in full. On by default, because a control hidden behind an opaque
-     * bar is worse than a margin that is merely wasteful.
-     */
-    fun navBarReservesFull(position: NavPosition): Boolean =
-        !position.canDoubleBook || position in navReserveFullState
-
-    fun setNavBarReservesFull(position: NavPosition, value: Boolean) {
-        navReserveFullState =
-            if (value) navReserveFullState + position else navReserveFullState - position
-        prefs.edit().putBoolean(navKey(position, SUFFIX_RESERVE_FULL), value).apply()
-    }
 
     private var navCollapsedState by mutableStateOf(loadCollapsed())
 
@@ -427,7 +389,6 @@ class LauncherSettings private constructor(context: Context) {
 
         navHideSystemState = prefs.getBoolean(KEY_NAV_HIDE_SYSTEM, false)
         navHideStatusState = prefs.getBoolean(KEY_NAV_HIDE_STATUS, false)
-        navReserveFullState = loadReserveFull()
         navCollapsedState = loadCollapsed()
         checkDefaultState = prefs.getBoolean(KEY_CHECK_DEFAULT, true)
         navBarsState = loadNavBars()
@@ -470,9 +431,10 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_NAV_THICKNESS = "nav_thickness_dp"
         private const val KEY_NAV_HIDE_SYSTEM = "nav_hide_system"
         private const val KEY_NAV_HIDE_STATUS = "nav_hide_status"
-        private const val KEY_NAV_RESERVE_FULL = "nav_reserve_full"
+        // nav_reserve_full and nav_<POS>_reserve_full may still be on disk from
+        // before 26 Sep 2026; nothing reads them now that the strip the head unit's
+        // bar held is never reserved twice.
         private const val SUFFIX_COLLAPSED = "collapsed"
-        private const val SUFFIX_RESERVE_FULL = "reserve_full"
         private const val KEY_NAV_SHORTCUTS = "nav_shortcuts"
         private const val KEY_NAV_ACTIONS = "nav_actions"
         private const val DEFAULT_NAV_ACTIONS = "BACK,HOME,RECENTS,APPS"

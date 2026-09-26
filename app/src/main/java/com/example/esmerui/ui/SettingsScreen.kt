@@ -746,20 +746,19 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
                 // Only offer the pull-down as the way back to BYD's climate while it
                 // is actually reachable - hiding the status bar takes it away too.
                 settings.navHideSystemBar && !settings.navHideStatusBar ->
-                    "BYD's bar is hidden - climate moves to the top pull-down"
+                    "BYD's bar is covered by yours - climate moves to the top pull-down"
                 settings.navHideSystemBar ->
-                    "BYD's bar is hidden - with the status bar gone too, its climate " +
-                        "panel is only reachable as an app shortcut"
-                else -> "Hides BYD's bar, including its climate controls"
+                    "BYD's bar is covered by yours - with the status bar covered too, its " +
+                        "climate panel is only reachable as an app shortcut"
+                else -> "Puts your bottom bar over BYD's, including its climate controls"
             },
             subtitleHighlighted = !canHideSystemBar,
             enabled = canHideSystemBar,
             checked = settings.navHideSystemBar,
+            // The bar service owns the platform setting: whether BYD's bar is hidden
+            // or merely covered depends on which host is drawing ours right now.
             onCheckedChange = {
                 settings.navHideSystemBar = it
-                // Both bars live in one platform setting, so each write has to carry
-                // the other's current wish or it would silently undo it.
-                SystemBarController.apply(context, it, settings.navHideStatusBar)
                 NavBarService.sync(context)
             },
         )
@@ -771,45 +770,20 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
             subtitle = when {
                 !canHideSystemBar -> "Needs adb: ${SystemBarController.GRANT_COMMAND}"
                 settings.navHideStatusBar ->
-                    "BYD's status bar is hidden - a top bar of your own has the strip"
-                else -> "Hides BYD's top bar, including the notification pull-down"
+                    "BYD's status bar is covered by yours - a top bar of your own has the strip"
+                else -> "Puts your top bar over BYD's, including the notification pull-down"
             },
             subtitleHighlighted = !canHideSystemBar,
             enabled = canHideSystemBar,
             checked = settings.navHideStatusBar,
             onCheckedChange = {
                 settings.navHideStatusBar = it
-                SystemBarController.apply(context, settings.navHideSystemBar, it)
                 NavBarService.sync(context)
             },
         )
 
         Spacer(Modifier.height(8.dp))
 
-        // One per edge, and only the two that can be double-booked: there is no
-        // system bar down the sides, so a left or right bar is always reserved in
-        // full and a switch for it would do nothing.
-        NavPosition.entries.filter { it.canDoubleBook }.forEach { edge ->
-            val bar = settings.navBar(edge)
-            val on = settings.navBarReservesFull(edge)
-            SwitchRow(
-                title = "Keep apps clear of the ${edge.label.lowercase()} bar",
-                subtitle = when {
-                    !bar.isRenderable -> "No ${edge.label.lowercase()} bar to keep clear of"
-                    on -> "Apps are held off its full width. Anything laying out against " +
-                        "the hidden system bars, Waze among them, gets a margin it does not need"
-                    else -> "Only the strip the head unit's own bar did not already hold " +
-                        "back is reserved, so most apps draw under ours"
-                },
-                enabled = bar.isRenderable,
-                checked = on,
-                onCheckedChange = {
-                    settings.setNavBarReservesFull(edge, it)
-                    NavBarService.sync(context)
-                },
-            )
-            Spacer(Modifier.height(8.dp))
-        }
         // Listed and connected are different things on this unit. The head unit
         // refuses to start our service while we are not running unless its own
         // "Disable Autostart" list allows us, and being in the enabled list does
