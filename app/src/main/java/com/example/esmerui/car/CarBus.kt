@@ -302,8 +302,17 @@ object CarBus {
     const val WINDOW_CLOSE = 2
     const val WINDOW_STOP = 3
 
+    /**
+     * A window at the bottom of its travel reports 98, sometimes 100, never
+     * reliably the latter - so the last few percent are read as fully open, and
+     * the button says 100% rather than a 98% that looks like it stopped short.
+     */
+    private const val WINDOW_FULL_OPEN_FROM = 95
+
     fun windowPercent(window: CarWindow): Int? =
-        reading(BODYWORK, window.percentField)?.takeIf { it in ROOF_CLOSED_PERCENT..ROOF_OPEN_PERCENT }
+        reading(BODYWORK, window.percentField)
+            ?.takeIf { it in ROOF_CLOSED_PERCENT..ROOF_OPEN_PERCENT }
+            ?.let { if (it >= WINDOW_FULL_OPEN_FROM) ROOF_OPEN_PERCENT else it }
 
     fun setWindow(window: CarWindow, command: Int): Boolean =
         BydFeatures.writeInt(BODYWORK, window.controlField, command)

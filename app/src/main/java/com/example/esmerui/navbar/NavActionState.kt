@@ -96,7 +96,10 @@ object NavActionState {
 
         // Any opening at all counts, including a panel still on its way: the
         // percentage beside the icon says how far, and the colour says "not shut".
-        NavAction.SUNROOF, NavAction.SUNSHADE ->
+        NavAction.SUNROOF, NavAction.SUNSHADE,
+        NavAction.WINDOW_LEFT_FRONT, NavAction.WINDOW_RIGHT_FRONT,
+        NavAction.WINDOW_LEFT_REAR, NavAction.WINDOW_RIGHT_REAR,
+        NavAction.WINDOWS_ALL, NavAction.TAILGATE ->
             (CarStatus.roofPercent(action) ?: 0) > 0
 
         else -> false
