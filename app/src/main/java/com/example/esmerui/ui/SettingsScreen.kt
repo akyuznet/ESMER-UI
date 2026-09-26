@@ -6,8 +6,13 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitHorizontalTouchSlopOrCancellation
 import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.horizontalDrag
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.progressSemantics
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,7 +38,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
@@ -46,16 +50,30 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawWithCache
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.setProgress
+import androidx.compose.ui.text.TextLayoutResult
+import androidx.compose.ui.text.drawText
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.zIndex
@@ -182,7 +200,7 @@ fun SettingsScreen(
                             label = "Icon size",
                             value = settings.iconSizeDp,
                             range = LauncherSettings.ICON_SIZE_RANGE,
-                            valueLabel = "${settings.iconSizeDp} dp",
+                            valueLabel = { "$it dp" },
                             onValueChange = { settings.iconSizeDp = it },
                         )
                         Spacer(Modifier.height(8.dp))
@@ -422,9 +440,12 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
 
     val config = settings.navBar(editing)
 
+    // Putting a change on screen means the service tearing down and re-adding
+    // every overlay window, so it is only asked to when something changed.
     fun edit(transform: (NavBarConfig) -> NavBarConfig) {
+        val before = settings.navBar(editing)
         settings.updateNavBar(editing, transform)
-        NavBarService.sync(context)
+        if (settings.navBar(editing) != before) NavBarService.sync(context)
     }
 
     SettingsCard(title = "Navigation bars") {
@@ -527,7 +548,7 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
             label = "Bar thickness",
             value = config.thicknessDp,
             range = LauncherSettings.NAV_THICKNESS_RANGE,
-            valueLabel = "${config.thicknessDp} dp",
+            valueLabel = { "$it dp" },
             onValueChange = { thickness -> edit { it.copy(thicknessDp = thickness) } },
         )
 
@@ -535,7 +556,7 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
             label = "Icon size",
             value = config.iconSizeDp,
             range = LauncherSettings.NAV_ICON_SIZE_RANGE,
-            valueLabel = "${config.iconSizeDp} dp",
+            valueLabel = { "$it dp" },
             onValueChange = { size -> edit { it.copy(iconSizeDp = size) } },
         )
         if (config.iconSizeDp > config.thicknessDp - 12) {
@@ -576,7 +597,26 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
         fun slotFor(from: Int) =
             (from + (dragOffset / rowPx).roundToInt()).coerceIn(0, lastIndex)
 
-        val dropAt = dragFrom?.let(::slotFor)
+        // Where the row at [index] sits right now, relative to its resting place.
+        // Everything between where the dragged row was picked up and where it now
+        // hovers shifts one slot, so the gap follows the finger. Snapped rather than
+        // animated: on the drop the list relayouts into the new order, and an
+        // in-flight slide would be animating from a position that no longer means
+        // anything.
+        //
+        // Called from each row's draw pass rather than here: the offset changes on
+        // every frame of a drag, and reading it in composition recomposed the whole
+        // card - every edge, slider and button - for each of those frames.
+        fun shiftFor(index: Int): Float {
+            val from = dragFrom ?: return 0f
+            val dropAt = slotFor(from)
+            return when {
+                index == from -> dragOffset
+                index in (from + 1)..dropAt -> -rowPx
+                index in dropAt until from -> rowPx
+                else -> 0f
+            }
+        }
 
         // Reads its values through the state delegates rather than from captured
         // locals: pointerInput keeps the lambda it was handed when the gesture
@@ -595,26 +635,11 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
         }
 
         config.items.forEachIndexed { index, item ->
-            val from = dragFrom
-            val dragging = from == index
-            // Everything between where the row was picked up and where it now hovers
-            // shifts one slot, so the gap follows the finger. Snapped rather than
-            // animated: on the drop the list relayouts into the new order, and an
-            // in-flight slide would be animating from a position that no longer means
-            // anything.
-            val shift = when {
-                from == null || dropAt == null -> 0f
-                dragging -> dragOffset
-                index in (from + 1)..dropAt -> -rowPx
-                index in dropAt until from -> rowPx
-                else -> 0f
-            }
-
             NavItemRow(
                 item = item,
                 apps = apps,
-                dragging = dragging,
-                offsetY = shift,
+                dragging = dragFrom == index,
+                offsetY = { shiftFor(index) },
                 onDragStart = { dragFrom = index; dragOffset = 0f },
                 onDrag = { delta -> dragOffset += delta },
                 onDragStop = stopDrag,
@@ -863,13 +888,18 @@ private fun NavBarSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
 /** Height of one row, fixed so the drag can work out the slot from the offset alone. */
 private val NAV_ROW_HEIGHT = 56.dp
 
-/** One row of the ordered item list, with its drag handle and remove control. */
+/**
+ * One row of the ordered item list, with its drag handle and remove control.
+ *
+ * [offsetY] is a lambda so the row can read it while drawing: the value moves
+ * with every frame of a drag, and only the layer needs to know.
+ */
 @Composable
 private fun NavItemRow(
     item: NavItem,
     apps: List<AppEntry>,
     dragging: Boolean,
-    offsetY: Float,
+    offsetY: () -> Float,
     onDragStart: () -> Unit,
     onDrag: (Float) -> Unit,
     onDragStop: (committed: Boolean) -> Unit,
@@ -888,7 +918,7 @@ private fun NavItemRow(
             // The dragged row rides above the others, and is lifted visually so it
             // is obvious which one the finger has hold of.
             .zIndex(if (dragging) 1f else 0f)
-            .graphicsLayer { translationY = offsetY }
+            .graphicsLayer { translationY = offsetY() }
             .clip(RoundedCornerShape(12.dp))
             .background(
                 if (dragging) MaterialTheme.colorScheme.surfaceVariant else Color.Transparent
@@ -1126,14 +1156,14 @@ private fun WindowSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
             label = "Window width",
             value = settings.windowWidthPercent,
             range = LauncherSettings.WINDOW_SIZE_RANGE,
-            valueLabel = "${settings.windowWidthPercent}%",
+            valueLabel = { "$it%" },
             onValueChange = { settings.windowWidthPercent = it },
         )
         SliderSetting(
             label = "Window height",
             value = settings.windowHeightPercent,
             range = LauncherSettings.WINDOW_SIZE_RANGE,
-            valueLabel = "${settings.windowHeightPercent}%",
+            valueLabel = { "$it%" },
             onValueChange = { settings.windowHeightPercent = it },
         )
         Text(
@@ -1315,35 +1345,176 @@ private fun StepperSetting(
     }
 }
 
+/**
+ * A slider over a whole-number setting, drawn by hand.
+ *
+ * Material's slider recomposes, re-measures and re-announces itself on every
+ * frame of a drag, and on this unit each of those costs milliseconds before the
+ * page around it is counted: the page is one accessibility tree, and with the
+ * accessibility services this unit has switched on (the launcher's own, Dudu's,
+ * OverDrive's, the ROM's) Compose re-walks and diffs the whole of it whenever any
+ * node's semantics change. Measured on the bars tab, a drag of Material's slider
+ * ran at five to ten frames a second.
+ *
+ * This one moves nothing but pixels while the finger is down. The thumb, the
+ * track and the value label are drawn from a state only the draw pass reads, in a
+ * layer of their own, so a frame of drag is one small re-record; the setting
+ * hears the number once, when the finger lifts. Same look as Material's: a 16 dp
+ * track, a 4 x 44 dp bar thumb with a 6 dp gap either side, a stop dot at the
+ * far end.
+ */
 @Composable
 private fun SliderSetting(
     label: String,
     value: Int,
     range: IntRange,
-    valueLabel: String,
+    valueLabel: (Int) -> String,
     onValueChange: (Int) -> Unit,
 ) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                text = label,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.onSurface,
-                modifier = Modifier.weight(1f),
-            )
-            Text(
-                text = valueLabel,
-                style = MaterialTheme.typography.bodyLarge,
-                color = MaterialTheme.colorScheme.primary,
-            )
-        }
-        Slider(
-            value = value.toFloat(),
-            onValueChange = { onValueChange(it.roundToInt()) },
-            valueRange = range.first.toFloat()..range.last.toFloat(),
-        )
+    val textMeasurer = rememberTextMeasurer()
+    val labelStyle = MaterialTheme.typography.bodyLarge
+        .copy(color = MaterialTheme.colorScheme.onSurface)
+    val valueStyle = MaterialTheme.typography.bodyLarge
+        .copy(color = MaterialTheme.colorScheme.primary)
+    val activeColor = MaterialTheme.colorScheme.primary
+    val inactiveColor = MaterialTheme.colorScheme.secondaryContainer
+
+    // Where the finger is while it is down, as a fraction of the track; null
+    // otherwise, so the thumb follows the setting whenever something else (Reset,
+    // an import) changes it. Read by the draw pass and the gesture, never by
+    // composition.
+    var dragFraction by remember { mutableStateOf<Float?>(null) }
+    val currentValue by rememberUpdatedState(value)
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+
+    val span = (range.last - range.first).toFloat()
+    fun fractionOf(v: Int) = (v - range.first) / span
+    fun valueAt(fraction: Float) = range.first + (fraction * span).roundToInt()
+
+    fun settle(commit: Boolean) {
+        val fraction = dragFraction ?: return
+        dragFraction = null
+        val settled = valueAt(fraction)
+        if (commit && settled != currentValue) currentOnValueChange(settled)
     }
+
+    Spacer(
+        Modifier
+            .fillMaxWidth()
+            .height(SLIDER_LABEL_HEIGHT + SLIDER_THUMB_HEIGHT)
+            // Its own layer: without one, each frame re-recorded the draw list of
+            // the whole card around it.
+            .graphicsLayer()
+            .progressSemantics(value.toFloat(), range.first.toFloat()..range.last.toFloat())
+            .semantics {
+                contentDescription = label
+                setProgress { target ->
+                    onValueChange(target.roundToInt())
+                    true
+                }
+            }
+            .pointerInput(range) {
+                val thumbWidth = SLIDER_THUMB_WIDTH.toPx()
+                fun fractionAt(x: Float) =
+                    ((x - thumbWidth / 2) / (size.width - thumbWidth)).coerceIn(0f, 1f)
+
+                awaitEachGesture {
+                    val down = awaitFirstDown(requireUnconsumed = false)
+                    dragFraction = fractionAt(down.position.x)
+                    // Only a sideways move is a drag: the page underneath scrolls on
+                    // a vertical one and takes the pointer with it, and then the
+                    // thumb goes back where it was.
+                    val start = awaitHorizontalTouchSlopOrCancellation(down.id) { change, _ ->
+                        change.consume()
+                        dragFraction = fractionAt(change.position.x)
+                    }
+                    if (start != null) {
+                        val finished = horizontalDrag(start.id) { change ->
+                            change.consume()
+                            dragFraction = fractionAt(change.position.x)
+                        }
+                        settle(commit = finished)
+                    } else {
+                        // Lifted without moving: a tap, which lands the thumb there.
+                        val lifted = currentEvent.changes.none { it.id == down.id && it.pressed }
+                        settle(commit = lifted)
+                    }
+                }
+            }
+            .drawWithCache {
+                val trackHeight = SLIDER_TRACK_HEIGHT.toPx()
+                val thumbWidth = SLIDER_THUMB_WIDTH.toPx()
+                val thumbHeight = SLIDER_THUMB_HEIGHT.toPx()
+                val gap = SLIDER_THUMB_GAP.toPx()
+                val outer = CornerRadius(trackHeight / 2)
+                val inner = CornerRadius(2.dp.toPx())
+                val stopRadius = 2.dp.toPx()
+                val trackCenterY = SLIDER_LABEL_HEIGHT.toPx() + thumbHeight / 2
+                val trackTop = trackCenterY - trackHeight / 2
+                val labelLayout = textMeasurer.measure(label, labelStyle)
+                // Laying out a value's text costs a few milliseconds here, and a drag
+                // shows a new one most frames; each is laid out once per size.
+                val valueLayouts = HashMap<Int, TextLayoutResult>()
+                val path = Path()
+
+                // One piece of track, round at its outer end and nearly square at
+                // the end that faces the thumb.
+                fun DrawScope.segment(
+                    left: Float,
+                    right: Float,
+                    leftRadius: CornerRadius,
+                    rightRadius: CornerRadius,
+                    color: Color,
+                ) {
+                    if (right <= left) return
+                    path.rewind()
+                    path.addRoundRect(
+                        RoundRect(
+                            left, trackTop, right, trackTop + trackHeight,
+                            leftRadius, rightRadius, rightRadius, leftRadius,
+                        )
+                    )
+                    drawPath(path, color)
+                }
+
+                onDrawBehind {
+                    val fraction = dragFraction ?: fractionOf(currentValue)
+                    val thumbCenter = thumbWidth / 2 + fraction * (size.width - thumbWidth)
+
+                    segment(0f, thumbCenter - thumbWidth / 2 - gap, outer, inner, activeColor)
+                    segment(thumbCenter + thumbWidth / 2 + gap, size.width, inner, outer, inactiveColor)
+                    // The stop marks the far end until the thumb itself is there.
+                    if (fraction < 1f) {
+                        drawCircle(
+                            activeColor,
+                            stopRadius,
+                            Offset(size.width - trackHeight / 2, trackCenterY),
+                        )
+                    }
+                    drawRoundRect(
+                        activeColor,
+                        Offset(thumbCenter - thumbWidth / 2, trackCenterY - thumbHeight / 2),
+                        Size(thumbWidth, thumbHeight),
+                        CornerRadius(thumbWidth / 2),
+                    )
+
+                    drawText(labelLayout)
+                    val shown = valueAt(fraction)
+                    val valueLayout = valueLayouts.getOrPut(shown) {
+                        textMeasurer.measure(valueLabel(shown), valueStyle)
+                    }
+                    drawText(valueLayout, topLeft = Offset(size.width - valueLayout.size.width, 0f))
+                }
+            }
+    )
 }
+
+/** The label line above the track: bodyLarge's line height. */
+private val SLIDER_LABEL_HEIGHT = 24.dp
+private val SLIDER_TRACK_HEIGHT = 16.dp
+private val SLIDER_THUMB_WIDTH = 4.dp
+private val SLIDER_THUMB_HEIGHT = 44.dp
+private val SLIDER_THUMB_GAP = 6.dp
 
 /** Shows the chosen icon size at 1:1 so the number means something. */
 @Composable

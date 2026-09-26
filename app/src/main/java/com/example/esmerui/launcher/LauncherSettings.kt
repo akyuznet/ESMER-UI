@@ -257,12 +257,16 @@ class LauncherSettings private constructor(context: Context) {
     val renderableNavBars: List<NavBarConfig> get() = navBars.filter { it.isRenderable }
 
     fun updateNavBar(position: NavPosition, transform: (NavBarConfig) -> NavBarConfig) {
-        val updated = transform(navBar(position)).let {
+        val current = navBar(position)
+        val updated = transform(current).let {
             it.copy(
                 thicknessDp = it.thicknessDp.coerceIn(NAV_THICKNESS_RANGE),
                 iconSizeDp = it.iconSizeDp.coerceIn(NAV_ICON_SIZE_RANGE),
             )
         }
+        // An edit that changes nothing would still rewrite the file and hand every
+        // reader of the map a new instance to recompose against.
+        if (updated == current) return
         prefs.edit()
             .putBoolean(navKey(position, SUFFIX_ENABLED), updated.enabled)
             .putString(navKey(position, SUFFIX_LAYOUT), updated.layout.name)
