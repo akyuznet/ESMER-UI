@@ -156,7 +156,7 @@ fun AllAppsScreen(
             // removed - otherwise taking it off the grid would strand the settings.
             item(key = HomeItem.SETTINGS_KEY) {
                 DrawerTile(
-                    label = "Settings",
+                    label = "ESMER·UI SETTINGS",
                     icon = null,
                     glyph = R.drawable.ic_settings,
                     iconSizeDp = settings.iconSizeDp,

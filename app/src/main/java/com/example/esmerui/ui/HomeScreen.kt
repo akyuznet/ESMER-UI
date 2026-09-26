@@ -728,7 +728,9 @@ private fun HomeCellView(
                 Spacer(Modifier.height(4.dp))
                 Text(
                     text = when (item) {
-                        is HomeItem.Settings -> "Settings"
+                        // Named in full: BYD's own Settings sits on the same grid, and
+                        // two tiles both called Settings were being mistaken for each other.
+                        is HomeItem.Settings -> "ESMER·UI SETTINGS"
                         // An app uninstalled since it was placed keeps its slot, so
                         // it can be seen and removed rather than leaving a hole.
                         else -> app?.label ?: "Not installed"

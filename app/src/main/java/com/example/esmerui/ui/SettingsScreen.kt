@@ -117,7 +117,7 @@ fun SettingsScreen(
             }
             Spacer(Modifier.width(16.dp))
             Text(
-                text = "Launcher settings",
+                text = "ESMER·UI settings",
                 style = MaterialTheme.typography.headlineSmall,
                 color = MaterialTheme.colorScheme.onSurface,
             )
