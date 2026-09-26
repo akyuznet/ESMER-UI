@@ -58,8 +58,9 @@ Each bar holds any mix of:
 - Volume up / down / mute
 - Climate: temperature and fan steppers, A/C, recirculate, front and rear defrost,
   per-vent airflow, seat heating and ventilation, steering wheel heat
-- Body: sunroof, sunshade, each window, tailgate — one press opens, the next stops
-- Head-up display on/off, brightness and height
+- Body: sunroof, sunshade, each window or all four, tailgate — one press opens, the
+  next stops the panel where it is (the tailgate command is untested on this car)
+- Head-up display: on/off, navigation and ADAS content, theme, brightness, height
 - App shortcuts
 - Live readouts (below)
 
