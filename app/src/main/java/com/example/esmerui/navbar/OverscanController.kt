@@ -51,15 +51,21 @@ object OverscanController {
      * A list, because an app cannot be asked which insets it honours. These were
      * each measured on the unit, one screenshot per setting.
      *
-     * Android Auto is deliberately *not* here, against the obvious guess. It
-     * centres a fixed-aspect projection surface in whatever area it is handed, so
-     * with nothing reserved it centres that surface in the whole screen and its
-     * top row of controls ends up behind our bar. Reserving in full hands it the
-     * space between the bars instead and the whole of it is visible - the letterbox
-     * above and below is its own, and is there either way.
+     * Android Auto (BYD's projection sink) is here, and was once deliberately kept
+     * off. Measured again on 26 Sep 2026 with the service that drives this path
+     * actually bound: reserved in full it shows a black band the height of the
+     * status bar under our top bar, another above our bottom bar, and its top row
+     * of controls is clipped; reserved reduced it fills the space between the bars
+     * exactly. The earlier note was taken while the accessibility service had been
+     * dead since an install, so the per-app switch was never being applied and the
+     * two settings compared were not the two they seemed to be.
+     *
+     * Chrome is the counter-example and is what the list is *not* for: reserved
+     * reduced, its tab strip sits under our top bar.
      */
     private val STABLE_INSET_APPS = setOf(
         "com.waze",
+        "com.byd.androidauto",
     )
 
     /**
