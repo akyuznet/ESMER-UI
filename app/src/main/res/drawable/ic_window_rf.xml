@@ -3,7 +3,7 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- ic_window_lf mirrored: the front door on the right of the car. -->
+    <!-- ic_window_lf's door mirrored, lettered R the right way round. -->
     <group
         android:scaleX="-1"
         android:pivotX="12"
@@ -28,4 +28,12 @@
             android:strokeLineJoin="round"
             android:pathData="M13,6 L13,9.6 M11.3,8 L13,9.7 L14.7,8" />
     </group>
+    <!-- R -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9.6,20 L9.6,14 L12.4,14 A1.75,1.75 0 0 1 12.4,17.5 L9.6,17.5 M12,17.5 L14.2,20" />
 </vector>

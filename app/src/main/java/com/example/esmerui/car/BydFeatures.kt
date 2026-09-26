@@ -179,4 +179,42 @@ object BydFeatures {
         }
         return result == COMMAND_SUCCESS
     }
+
+    /** The manager's batch write, which the ROM's own wrappers use for "all windows". */
+    private val setIntArray: java.lang.reflect.Method? by lazy {
+        runCatching {
+            manager?.javaClass?.getMethod(
+                "setIntArray",
+                Int::class.javaPrimitiveType,
+                IntArray::class.java,
+                IntArray::class.java,
+            )
+        }.getOrNull()
+    }
+
+    /**
+     * Writes several signals in one call.
+     *
+     * Not a convenience: writes fired one after another are *dropped* by this
+     * car. Four window commands sent back to back moved two windows of four,
+     * each time; the same four spaced 400 ms apart moved all four. The ROM's own
+     * `setAllWindowState` never sends them singly - it hands the manager the
+     * whole batch through `setIntArray`, which is what this does. Returns false
+     * if the batch is refused or the manager has no such call, so a caller can
+     * fall back to spaced single writes.
+     */
+    fun writeInts(group: String, fields: List<String>, values: List<Int>): Boolean {
+        require(fields.size == values.size) { "one value per field" }
+        val target = manager ?: return false
+        val method = setIntArray ?: return false
+        val ids = IntArray(fields.size)
+        fields.forEachIndexed { i, field -> ids[i] = featureId(group, field) ?: return false }
+        val result = runCatching { method.invoke(target, DEVICE_ANY, ids, values.toIntArray()) as? Int }
+            .onFailure { Log.w(TAG, "batch write $group.$fields failed: ${it.cause ?: it}") }
+            .getOrNull()
+        if (result != COMMAND_SUCCESS) {
+            Log.w(TAG, "batch write $group.$fields=$values returned $result")
+        }
+        return result == COMMAND_SUCCESS
+    }
 }

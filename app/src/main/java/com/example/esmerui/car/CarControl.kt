@@ -448,9 +448,8 @@ object CarControl {
         close = { allWindows(CarBus.WINDOW_CLOSE) },
     )
 
-    /** Every window gets the command even if an earlier one refuses; one refusal fails the press. */
-    private fun allWindows(command: Int): Boolean =
-        CarBus.CarWindow.entries.map { CarBus.setWindow(it, command) }.all { it }
+    /** One batch for the four, since single writes in a row are dropped by the car. */
+    private fun allWindows(command: Int): Boolean = CarBus.setAllWindows(command)
 
     /**
      * The tailgate reports no position, only shut or open, so it is tracked as 0

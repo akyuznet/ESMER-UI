@@ -87,6 +87,10 @@ object CarInfo {
     @Volatile
     var outsideTemp: Int? = null
 
+    /** The road's grade under the car, as the car reports it; see [CarBus.slope]. */
+    @Volatile
+    var slope: Int? = null
+
     /**
      * How much of each radio's symbol is lit, or null when the radio is switched off
      * - which the bar draws as the symbol struck through.
@@ -168,6 +172,8 @@ object CarInfo {
         if (showing(NavAction.INFO_SPEED)) speedKmh = CarBus.speedKmh()
         if (showing(NavAction.INFO_LIGHTS)) headlights = CarBus.headlights()
         if (showing(NavAction.INFO_TURN)) holdTurnSignals(CarBus.turnSignals())
+        // Fast, like speed: a grade changes over a car length, not over minutes.
+        if (showing(NavAction.INFO_SLOPE)) slope = CarBus.slope()
 
         if (pollCount++ % SLOW_EVERY != 0) return
         if (showing(NavAction.INFO_TYRES, NavAction.INFO_TYRES_PSI, NavAction.INFO_TYRES_KPA)) tyrePressures = CarBus.tyrePressures()
@@ -331,6 +337,8 @@ object CarInfo {
         // Both sides of the filter, stacked - the caption below carries the outside.
         NavAction.INFO_PM25 -> particulates?.getOrNull(0)?.takeIf { it >= 0 }
             ?.let { "IN: $it" } ?: "IN: $NO_VALUE"
+        // Shown as a grade; see CarBus.slope for how sure the unit is.
+        NavAction.INFO_SLOPE -> slope?.let { "$it%" } ?: NO_VALUE
         else -> NO_VALUE
     }
 
@@ -344,6 +352,7 @@ object CarInfo {
         NavAction.INFO_RANGE_FUEL -> fuelPercent?.let { "$it%" }
         NavAction.INFO_TEMP_IN -> "IN"
         NavAction.INFO_TEMP_OUT -> "OUT"
+        NavAction.INFO_SLOPE -> "SLOPE"
         // The number alone could be anything; the unit is what names it.
         NavAction.INFO_SPEED -> "km/h"
         NavAction.INFO_PM25 -> particulates?.getOrNull(1)?.takeIf { it >= 0 }

@@ -4,9 +4,9 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <!--
-      A rear door on the left of the car: sloped edge at the back, and the
-      quarter-light divider that keeps it from being a mirrored front door.
-      See ic_window_lf.
+      A rear door on the left of the car: sloped edge at the back, the
+      quarter-light divider that keeps it from being a mirrored front door, and
+      the side lettered on the panel. See ic_window_lf.
     -->
     <path
         android:fillColor="@android:color/transparent"
@@ -27,4 +27,12 @@
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M9.5,6 L9.5,9.6 M7.8,8 L9.5,9.7 L11.2,8" />
+    <!-- L -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9.8,14 L9.8,20 L13.8,20" />
 </vector>

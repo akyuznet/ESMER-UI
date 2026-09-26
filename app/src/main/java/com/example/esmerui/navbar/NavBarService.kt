@@ -1823,7 +1823,7 @@ class NavBarService : Service() {
             NavAction.INFO_RANGE_FUEL, NavAction.INFO_TEMP_IN,
             NavAction.INFO_TEMP_OUT, NavAction.INFO_TYRES,
             NavAction.INFO_TYRES_PSI, NavAction.INFO_TYRES_KPA,
-            NavAction.INFO_PM25, NavAction.INFO_SPEED -> Unit
+            NavAction.INFO_PM25, NavAction.INFO_SPEED, NavAction.INFO_SLOPE -> Unit
             NavAction.SEAT_HEAT -> car { CarControl.cycleSeatHeat() }
             NavAction.SEAT_VENT -> car { CarControl.cycleSeatVent() }
             NavAction.SEAT_HEAT_PASSENGER -> car { CarControl.cycleSeatHeatPassenger() }

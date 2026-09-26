@@ -1,0 +1,27 @@
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <!--
+      A grade: the level ground, the road rising off it, and the angle between
+      them marked with an arc, the way a gradient sign draws it. The number
+      beside it is the car's own slope reading.
+    -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M2.5,19 L21.5,19 M2.5,19 L21.5,7" />
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.3"
+        android:strokeLineCap="round"
+        android:pathData="M9.5,19 A7,7 0 0 0 8.4,15.3" />
+    <path
+        android:fillColor="@android:color/white"
+        android:pathData="M14.5,9.6 L18.8,6.9 L18.8,12.3 Z" />
+</vector>

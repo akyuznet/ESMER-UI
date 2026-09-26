@@ -162,6 +162,8 @@ enum class NavAction(
     INFO_RANGE_FUEL("Fuel range", NavActionGroup.INFO, needsCar = true, isReadout = true),
     INFO_TEMP_IN("Inside temp", NavActionGroup.INFO, needsCar = true, isReadout = true),
     INFO_TEMP_OUT("Outside temp", NavActionGroup.INFO, needsCar = true, isReadout = true),
+    /** The road's grade under the car, from its own pitch sensor. */
+    INFO_SLOPE("Slope", NavActionGroup.INFO, needsCar = true, isReadout = true),
     ;
 
     /** The head-up display controls, which share one poll gate and one colour rule. */

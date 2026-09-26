@@ -318,6 +318,44 @@ object CarBus {
         BydFeatures.writeInt(BODYWORK, window.controlField, command)
 
     /**
+     * All four windows in one batch, the way the ROM's `setAllWindowState` does
+     * it. Sent singly, back to back, the car drops some of them - two of four
+     * moved, each time it was tried. If the batch call is refused the four are
+     * sent one at a time with a pause between, which was measured to reach all
+     * four; the caller is on a background thread, so the pause costs nothing
+     * visible.
+     */
+    fun setAllWindows(command: Int): Boolean {
+        val windows = CarWindow.entries
+        if (BydFeatures.writeInts(BODYWORK, windows.map { it.controlField }, List(windows.size) { command })) {
+            return true
+        }
+        var ok = true
+        windows.forEachIndexed { i, window ->
+            if (i > 0) Thread.sleep(WINDOW_WRITE_GAP_MS)
+            ok = setWindow(window, command) && ok
+        }
+        return ok
+    }
+
+    /** The spacing that made four single window writes all land; 400 did, 0 did not. */
+    private const val WINDOW_WRITE_GAP_MS = 400L
+
+    // ---- Slope ---------------------------------------------------------------
+
+    /**
+     * The car's own pitch, from `SENSOR_AUTO_SLOPE` - what the ROM's
+     * `BYDAutoSensorDevice.getSlope` reads and calls the "auto obliquity". Its
+     * declared range is -60..60. The unit is not stated anywhere in the ROM;
+     * it reads -1 to -2 on a garage floor and is shown as a percentage grade,
+     * which is the reading the user asked for. Check it against a known hill.
+     */
+    fun slope(): Int? = reading(SENSOR, "SENSOR_AUTO_SLOPE")?.takeIf { it in SLOPE_RANGE }
+
+    private const val SENSOR = "Sensor"
+    private val SLOPE_RANGE = -60..60
+
+    /**
      * The powered tailgate. It reports only shut or open, never how far, and is
      * driven through the register the car's voice assistant uses - the one
      * command path the ROM's setting wrapper exposes, `voiceCtlBackDoor`, whose

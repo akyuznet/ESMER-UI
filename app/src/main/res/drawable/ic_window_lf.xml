@@ -5,12 +5,12 @@
     android:viewportHeight="24">
     <!--
       A front door seen from outside the car, with the glass dropped: the sill
-      line across the middle and an arrow pointing down where the glass goes.
-      Which door is which is in the shape, not a marker. A front door has its
-      sloped edge at the front; a rear door has it at the back and carries the
-      quarter-light divider. The right-hand doors are these two mirrored, as
-      they would be if you walked round the car - so the four glyphs are four
-      shapes, and the slope alone says which side.
+      line across the middle and an arrow pointing down where the glass goes,
+      and the side of the car lettered on the door panel. Front and rear doors
+      differ in shape - the slope at the front, or at the back with the
+      quarter-light divider - and the right-hand pair are these mirrored, as
+      they would be walking round the car; the letter is drawn the right way
+      round on both.
     -->
     <path
         android:fillColor="@android:color/transparent"
@@ -31,4 +31,12 @@
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
         android:pathData="M13,6 L13,9.6 M11.3,8 L13,9.7 L14.7,8" />
+    <!-- L -->
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="@android:color/white"
+        android:strokeWidth="1.8"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:pathData="M9.8,14 L9.8,20 L13.8,20" />
 </vector>
