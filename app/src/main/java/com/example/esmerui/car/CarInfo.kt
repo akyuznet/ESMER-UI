@@ -332,6 +332,7 @@ object CarInfo {
     fun valueFor(action: NavAction): String = when (action) {
         NavAction.INFO_CLOCK -> clock()
         NavAction.INFO_DATE -> date()
+        NavAction.INFO_CLOCK_DATE -> clock() + " " + meridiem()
         // These draw their state as a symbol, so there is no text to add.
         NavAction.INFO_SIGNAL, NavAction.INFO_WIFI, NavAction.INFO_BLUETOOTH,
         NavAction.INFO_TURN, NavAction.INFO_TYRES, NavAction.INFO_TYRES_PSI, NavAction.INFO_TYRES_KPA -> ""
@@ -361,6 +362,7 @@ object CarInfo {
     fun captionFor(action: NavAction): String? = when (action) {
         NavAction.INFO_CLOCK -> meridiem()
         NavAction.INFO_DATE -> month()
+        NavAction.INFO_CLOCK_DATE -> date() + " " + month()
         NavAction.INFO_RANGE_EV -> batteryPercent?.let { "$it%" }
         NavAction.INFO_RANGE_FUEL -> fuelPercent?.let { "$it%" }
         NavAction.INFO_TEMP_IN -> "IN"

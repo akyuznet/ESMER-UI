@@ -56,7 +56,7 @@ object NavActionIcons {
         // The gear letter and the speed read as what they are too, and both are
         // glanced at rather than read - width spent on a glyph is width not spent
         // on the number.
-        NavAction.INFO_CLOCK, NavAction.INFO_DATE,
+        NavAction.INFO_CLOCK, NavAction.INFO_DATE, NavAction.INFO_CLOCK_DATE,
         NavAction.INFO_GEAR, NavAction.INFO_SPEED -> 0
         else -> of(action)
     }
@@ -119,6 +119,7 @@ object NavActionIcons {
 
         NavAction.INFO_CLOCK -> R.drawable.ic_info_clock
         NavAction.INFO_DATE -> R.drawable.ic_info_date
+        NavAction.INFO_CLOCK_DATE -> R.drawable.ic_info_clock
         NavAction.INFO_SIGNAL -> R.drawable.ic_info_signal
         NavAction.INFO_WIFI -> R.drawable.ic_wifi_4
         NavAction.INFO_BLUETOOTH -> R.drawable.ic_bt_1

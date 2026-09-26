@@ -1517,7 +1517,12 @@ class NavBarService : Service() {
         // and bold. The gear and the speed have to be readable at a glance from a
         // driving position, which is the same requirement by another name.
         val emphasised = action == NavAction.INFO_CLOCK || action == NavAction.INFO_DATE ||
+            action == NavAction.INFO_CLOCK_DATE ||
             action == NavAction.INFO_GEAR || action == NavAction.INFO_SPEED
+        // The date's two lines, and the combined clock-and-date's, are equals: a
+        // day over a month, a time over a date. Neither is a label of the other,
+        // so they are set the same size and share the bar's height evenly.
+        val equalLines = action == NavAction.INFO_DATE || action == NavAction.INFO_CLOCK_DATE
         val base = if (emphasised) {
             (config.iconSizeDp * 0.50f).coerceIn(13f, 30f)
         } else {
@@ -1539,13 +1544,14 @@ class NavBarService : Service() {
         // The clock and the date are enlarged too, and their second line - AM or
         // PM, the month - is a label of the same kind, so it is set small the same
         // way and the two together are held to the bar's height.
-        val hasUnit = (scale > 1f || emphasised) && CarInfo.captionFor(action) != null
+        val hasCaption = CarInfo.captionFor(action) != null
+        val hasUnit = !equalLines && (scale > 1f || emphasised) && hasCaption
         val stackBudget = (config.thicknessDp - BAR_PADDING_DP * 2) / LINE_HEIGHT_FACTOR
         val unitSize = (base * UNIT_CAPTION_SCALE).coerceAtLeast(MIN_UNIT_SP)
-        val size = if (hasUnit) {
-            (base * scale).coerceAtMost(stackBudget - unitSize)
-        } else {
-            base * scale
+        val size = when {
+            hasUnit -> (base * scale).coerceAtMost(stackBudget - unitSize)
+            equalLines && hasCaption -> (base * scale).coerceAtMost(stackBudget / 2)
+            else -> base * scale
         }
 
         val value = TextView(this).apply {
@@ -1852,7 +1858,7 @@ class NavBarService : Service() {
             // and a readout has nothing to press at all.
             NavAction.TEMP_GROUP, NavAction.FAN_GROUP,
             NavAction.HUD_BRIGHTNESS_GROUP, NavAction.HUD_HEIGHT_GROUP -> Unit
-            NavAction.INFO_CLOCK, NavAction.INFO_DATE, NavAction.INFO_SIGNAL,
+            NavAction.INFO_CLOCK, NavAction.INFO_DATE, NavAction.INFO_CLOCK_DATE, NavAction.INFO_SIGNAL,
             NavAction.INFO_WIFI, NavAction.INFO_BLUETOOTH, NavAction.INFO_GEAR,
             NavAction.INFO_LIGHTS, NavAction.INFO_TURN, NavAction.INFO_RANGE_EV,
             NavAction.INFO_RANGE_FUEL, NavAction.INFO_TEMP_IN,

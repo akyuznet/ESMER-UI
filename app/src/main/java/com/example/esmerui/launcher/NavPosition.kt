@@ -145,6 +145,8 @@ enum class NavAction(
      */
     INFO_CLOCK("Clock", NavActionGroup.INFO, isReadout = true),
     INFO_DATE("Date", NavActionGroup.INFO, isReadout = true),
+    /** Both in one cell, the time over the date, for a bar with room for one item. */
+    INFO_CLOCK_DATE("Clock and date", NavActionGroup.INFO, isReadout = true),
     // The two radios show strength as bars rather than a number, and are the one
     // pair of readouts that respond to a press - straight to their own settings.
     INFO_SIGNAL("Signal", NavActionGroup.INFO, isReadout = true),
