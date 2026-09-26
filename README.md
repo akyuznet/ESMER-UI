@@ -47,8 +47,10 @@ The drawer lists the lot — tap to launch, or switch to `Edit home` and tap to 
 **Edge bars**
 
 Up to four bars — top, bottom, left, right — each independently enabled, sized and
-populated. They are `TYPE_APPLICATION_OVERLAY` windows, so they persist over other
-apps, and can take the system bars' own strip when those are hidden.
+populated. They are overlay windows hosted by the accessibility service, which the
+platform layers above the head unit's own bars, so they persist over other apps and
+sit over BYD's bars without those having to be hidden. Any docked bar folds away to
+a tab in its corner and comes back with a tap.
 
 Each bar holds any mix of:
 
@@ -56,15 +58,25 @@ Each bar holds any mix of:
 - Volume up / down / mute
 - Climate: temperature and fan steppers, A/C, recirculate, front and rear defrost,
   per-vent airflow, seat heating and ventilation, steering wheel heat
+- Body: sunroof, sunshade, each window, tailgate — one press opens, the next stops
+- Head-up display on/off, brightness and height
 - App shortcuts
 - Live readouts (below)
 
+Each bar is set up on its own tab in settings: which edge, full width or floating
+pill, thickness, icon size, and the ordered list of what it carries — drag a row by
+its handle to reorder.
+
+![Bar settings](docs/screenshots/settings-bars.png)
+
+![Reordering a bar's items](docs/screenshots/settings-items.png)
+
 **Live readouts, direct from the car**
 
-Clock, date, gear, road speed, headlight beam, indicators, tyre pressures (bar, psi
-or kPa), electric and fuel range with charge and tank percentages, inside and
-outside temperature, cabin and outside PM2.5, plus Wi-Fi, cellular and Bluetooth
-strength.
+Clock, date, gear, road speed, road slope, headlight beam, indicators, tyre
+pressures (bar, psi or kPa), electric and fuel range with charge and tank
+percentages, inside and outside temperature, cabin and outside PM2.5, plus Wi-Fi,
+cellular and Bluetooth strength.
 
 Values are read from BYD's automotive bus directly — no dependency on any other
 app being installed or running.
@@ -137,10 +149,11 @@ unit where the whole process otherwise sits mapped in memory.
 
 ## Setting it up on the unit
 
-Install, then grant the pieces that cannot be granted from the UI:
+Install — the signed APK from the [latest release](https://github.com/akyuznet/ESMER-UI/releases/latest),
+or your own build — then grant the pieces that cannot be granted from the UI:
 
 ```
-adb install -r app/build/outputs/apk/debug/app-debug.apk
+adb install -r ESMER-UI-1.1.apk
 
 # Hide BYD's own navigation and status bars
 adb shell pm grant com.example.esmerui android.permission.WRITE_SECURE_SETTINGS
@@ -170,6 +183,12 @@ appears on the home screen.
 - Overscan (`IWindowManager.setOverscan`, reflected) is used to reserve the screen
   edges so other apps do not draw under the bars. That API exists on Android 10 only.
 - Idle cost on the unit is roughly 1% of one core and ~50 MB PSS.
+
+## Community
+
+Questions, bug reports and what your car answers on the bus: the
+[ESMER·UI WhatsApp group](https://chat.whatsapp.com/FITclsqasVO7fxmVBlJ8gX?s=cl&p=a&ilr=4&iam=1),
+or [GitHub issues](https://github.com/akyuznet/ESMER-UI/issues).
 
 ## Licence
 
