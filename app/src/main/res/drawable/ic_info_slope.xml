@@ -4,24 +4,21 @@
     android:viewportWidth="24"
     android:viewportHeight="24">
     <!--
-      A grade: the level ground, the road rising off it, and the angle between
-      them marked with an arc, the way a gradient sign draws it. The number
-      beside it is the car's own slope reading.
+      A grade, as compact as it goes: the level ground, the road rising off it,
+      and the angle between them marked with an arc. Drawn to fill the box so it
+      holds up at the height of a line of text, where it sits next to the number.
     -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.6"
+        android:strokeWidth="2.2"
         android:strokeLineCap="round"
         android:strokeLineJoin="round"
-        android:pathData="M2.5,19 L21.5,19 M2.5,19 L21.5,7" />
+        android:pathData="M2.5,20.5 L21.5,20.5 L21.5,4.5 Z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.3"
+        android:strokeWidth="1.8"
         android:strokeLineCap="round"
-        android:pathData="M9.5,19 A7,7 0 0 0 8.4,15.3" />
-    <path
-        android:fillColor="@android:color/white"
-        android:pathData="M14.5,9.6 L18.8,6.9 L18.8,12.3 Z" />
+        android:pathData="M10,20.5 A7.5,7.5 0 0 0 8.5,15.9" />
 </vector>

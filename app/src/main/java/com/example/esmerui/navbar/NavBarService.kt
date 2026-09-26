@@ -1489,15 +1489,28 @@ class NavBarService : Service() {
         }
     }
 
+    /** Where a readout's icon sits relative to its two lines of text. */
+    private enum class IconPlacement { BESIDE, ON_VALUE, ON_CAPTION }
+
+    /**
+     * Beside both lines by default. The temperatures and the slope put theirs on
+     * the number's line, so the figure reads as "thermometer 32°" with IN or OUT
+     * under it; the two ranges put theirs on the percentage line, since a battery
+     * or a pump is what the percentage measures and the kilometres above are the
+     * consequence. An inline icon is drawn at its line's own height, which is
+     * what makes it compact - it sits in the text like a glyph rather than
+     * standing beside the stack at icon size.
+     */
+    private fun iconPlacement(action: NavAction): IconPlacement = when (action) {
+        NavAction.INFO_TEMP_IN, NavAction.INFO_TEMP_OUT, NavAction.INFO_SLOPE -> IconPlacement.ON_VALUE
+        NavAction.INFO_RANGE_EV, NavAction.INFO_RANGE_FUEL -> IconPlacement.ON_CAPTION
+        else -> IconPlacement.BESIDE
+    }
+
+    private fun spPx(sp: Float): Int = (sp * resources.displayMetrics.scaledDensity).toInt()
+
     private fun valueCell(action: NavAction, config: NavBarConfig): View {
-        val iconRes = NavActionIcons.onBar(action)
-        val icon = if (iconRes == 0) null else ImageView(this).apply {
-            setImageResource(iconRes)
-            setColorFilter(ICON_COLOR)
-            scaleType = ImageView.ScaleType.FIT_CENTER
-            val size = dp((config.iconSizeDp * 0.72f).toInt().coerceAtLeast(14))
-            layoutParams = LinearLayout.LayoutParams(size, size)
-        }
+        val placement = iconPlacement(action)
 
         // The clock, date, gear and speed are what the eye goes to first on a status
         // bar, and none of them carry an icon to anchor them, so they are set larger
@@ -1523,7 +1536,10 @@ class NavBarService : Service() {
         // lower line is clipped off the bottom edge, which is what an enlarged speed
         // did to its own "km/h". The unit takes its small share first and the figure
         // gets the rest, since a label too small to read helps nobody.
-        val hasUnit = scale > 1f && CarInfo.captionFor(action) != null
+        // The clock and the date are enlarged too, and their second line - AM or
+        // PM, the month - is a label of the same kind, so it is set small the same
+        // way and the two together are held to the bar's height.
+        val hasUnit = (scale > 1f || emphasised) && CarInfo.captionFor(action) != null
         val stackBudget = (config.thicknessDp - BAR_PADDING_DP * 2) / LINE_HEIGHT_FACTOR
         val unitSize = (base * UNIT_CAPTION_SCALE).coerceAtLeast(MIN_UNIT_SP)
         val size = if (hasUnit) {
@@ -1557,29 +1573,48 @@ class NavBarService : Service() {
             includeFontPadding = false
             isVisible = text.isNotEmpty()
         }
+        val iconRes = NavActionIcons.onBar(action)
+        val icon = if (iconRes == 0) null else ImageView(this).apply {
+            setImageResource(iconRes)
+            setColorFilter(ICON_COLOR)
+            scaleType = ImageView.ScaleType.FIT_CENTER
+            val px = when (placement) {
+                IconPlacement.BESIDE -> dp((config.iconSizeDp * 0.72f).toInt().coerceAtLeast(14))
+                IconPlacement.ON_VALUE -> spPx(size)
+                IconPlacement.ON_CAPTION -> spPx(if (hasUnit) unitSize else size)
+            }
+            // Tight against its text, so the symbol reads as part of the value it
+            // labels rather than as a separate thing next to it.
+            layoutParams = LinearLayout.LayoutParams(px, px).apply { marginEnd = dp(2) }
+        }
         infoCells += InfoCell(action, icon, value, caption)
 
-        val text = LinearLayout(this).apply {
+        // A line with its icon set into it, or the bare text where the icon lives
+        // elsewhere.
+        fun line(text: TextView, carriesIcon: Boolean): View =
+            if (!carriesIcon || icon == null) {
+                text
+            } else {
+                LinearLayout(this).apply {
+                    orientation = LinearLayout.HORIZONTAL
+                    gravity = Gravity.CENTER_VERTICAL
+                    addView(icon)
+                    addView(text)
+                }
+            }
+
+        val stack = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
-            addView(value)
-            addView(caption)
+            addView(line(value, placement == IconPlacement.ON_VALUE))
+            addView(line(caption, placement == IconPlacement.ON_CAPTION))
         }
 
         return LinearLayout(this).apply {
             orientation = LinearLayout.HORIZONTAL
             gravity = Gravity.CENTER
-            icon?.let { addView(it) }
-            addView(
-                text,
-                LinearLayout.LayoutParams(
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    LinearLayout.LayoutParams.WRAP_CONTENT,
-                    // No icon means no gap to leave beside one. Tight where there is
-                    // one, so the symbol reads as part of the value it labels rather
-                    // than as a separate thing next to it.
-                ).apply { if (icon != null) marginStart = dp(2) },
-            )
+            if (placement == IconPlacement.BESIDE) icon?.let { addView(it) }
+            addView(stack)
         }
     }
 

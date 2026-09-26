@@ -305,13 +305,24 @@ object CarInfo {
 
     // ---- Formatting --------------------------------------------------------
 
-    /** Twelve-hour with the meridiem, whatever the unit's own clock is set to. */
-    private val clockFormat = SimpleDateFormat("h:mm a", Locale.getDefault())
-    private val dateFormat = SimpleDateFormat("d MMM", Locale.getDefault())
+    /**
+     * Twelve-hour, whatever the unit's own clock is set to, with the meridiem on
+     * its own line under the time; the date is the day over the month the same
+     * way. Two short lines fit a bar cell better than one long one, and the big
+     * figure is the part that gets read.
+     */
+    private val clockFormat = SimpleDateFormat("h:mm", Locale.getDefault())
+    private val meridiemFormat = SimpleDateFormat("a", Locale.getDefault())
+    private val dayFormat = SimpleDateFormat("d", Locale.getDefault())
+    private val monthFormat = SimpleDateFormat("MMM", Locale.getDefault())
 
     fun clock(): String = clockFormat.format(Date())
 
-    fun date(): String = dateFormat.format(Date())
+    fun meridiem(): String = meridiemFormat.format(Date()).uppercase(Locale.getDefault())
+
+    fun date(): String = dayFormat.format(Date())
+
+    fun month(): String = monthFormat.format(Date())
 
     private fun km(value: Int?): String = value?.let { "$it km" } ?: NO_VALUE
 
@@ -348,6 +359,8 @@ object CarInfo {
      * useful to add.
      */
     fun captionFor(action: NavAction): String? = when (action) {
+        NavAction.INFO_CLOCK -> meridiem()
+        NavAction.INFO_DATE -> month()
         NavAction.INFO_RANGE_EV -> batteryPercent?.let { "$it%" }
         NavAction.INFO_RANGE_FUEL -> fuelPercent?.let { "$it%" }
         NavAction.INFO_TEMP_IN -> "IN"
