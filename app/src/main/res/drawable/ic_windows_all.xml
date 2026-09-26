@@ -3,20 +3,20 @@
     android:height="24dp"
     android:viewportWidth="24"
     android:viewportHeight="24">
-    <!-- Same drawing as ic_window_lf, every tab filled. -->
+    <!-- Same drawing as ic_window_lf, every block filled. -->
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.6"
+        android:strokeWidth="1.5"
         android:strokeLineJoin="round"
-        android:pathData="M9.5,2.5 h5 a2.5,2.5 0 0 1 2.5,2.5 v14 a2.5,2.5 0 0 1 -2.5,2.5 h-5 a2.5,2.5 0 0 1 -2.5,-2.5 v-14 a2.5,2.5 0 0 1 2.5,-2.5 z" />
+        android:pathData="M10,2.2 h4 a2.2,2.2 0 0 1 2.2,2.2 v15.2 a2.2,2.2 0 0 1 -2.2,2.2 h-4 a2.2,2.2 0 0 1 -2.2,-2.2 v-15.2 a2.2,2.2 0 0 1 2.2,-2.2 z" />
     <path
         android:fillColor="@android:color/transparent"
         android:strokeColor="@android:color/white"
-        android:strokeWidth="1.2"
+        android:strokeWidth="1.1"
         android:strokeLineCap="round"
-        android:pathData="M8.4,7.5 L15.6,7.5 M8.4,16.5 L15.6,16.5" />
+        android:pathData="M9,7 L15,7 M9,17 L15,17" />
     <path
         android:fillColor="@android:color/white"
-        android:pathData="M3.2,8.6 h3.8 v3.4 h-3.8 z M17,8.6 h3.8 v3.4 h-3.8 z M3.2,13 h3.8 v3.4 h-3.8 z M17,13 h3.8 v3.4 h-3.8 z" />
+        android:pathData="M2,7.6 h4.6 v4.4 h-4.6 z M17.4,7.6 h4.6 v4.4 h-4.6 z M2,12.9 h4.6 v4.4 h-4.6 z M17.4,12.9 h4.6 v4.4 h-4.6 z" />
 </vector>
