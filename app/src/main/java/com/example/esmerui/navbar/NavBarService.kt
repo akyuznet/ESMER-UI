@@ -306,11 +306,17 @@ class NavBarService : Service() {
             NavAction.from(intent.getStringExtra(EXTRA_ACTION))?.let { perform(it) }
             return START_STICKY
         }
-        // Debug only, from BusWatch: run the last rung of the accessibility repair
-        // on demand. A path that only executes when something is already broken is
-        // otherwise impossible to see working.
+        // Debug only, from BusWatch: run the accessibility rebind on demand, the
+        // rung that clears a stuck binding. A path that only executes when something
+        // is already broken is otherwise impossible to see working; on a healthy
+        // unit this unbinds us and binds us again, which is the same two steps.
         if (intent?.action == ACTION_REPAIR) {
-            restartToClearBinding()
+            Log.i(TAG, "debug: forcing an accessibility rebind")
+            AccessibilityGuard.rebind(this) {
+                pollHandler.postDelayed({
+                    Log.i(TAG, "debug rebind finished; connected=${NavAccessibilityService.isConnected}")
+                }, REBIND_SETTLE_MS)
+            }
             return START_STICKY
         }
         rebuild()
@@ -1961,8 +1967,10 @@ class NavBarService : Service() {
                 return@postDelayed
             }
 
-            // The toggle has had its chances. What is left is not an absent
-            // binding but a stuck one, and only dropping our process shifts that.
+            // The rebind has had its chances. Done properly - our entry held out
+            // of the list until the platform has seen it gone - it is what clears
+            // a stuck binding; if even that did not take, dropping our process is
+            // the one thing left to try before telling the user.
             if (attempt >= ACCESSIBILITY_REPAIR_ATTEMPTS) {
                 verifyingAccessibility = false
                 Log.w(TAG, "accessibility still unbound after $attempt rebinds")
@@ -1980,15 +1988,24 @@ class NavBarService : Service() {
     private var verifyingAccessibility = false
 
     /**
-     * Drops our own process, which is the only thing that shifts an accessibility
-     * binding the platform has left half-open.
+     * Drops our own process: the last resort for an accessibility binding the
+     * platform has left half-open, after the rebind rungs have failed.
      *
      * Measured on this unit, 25 Sep 2026, with our entry sitting in the platform's
      * "Binding" queue and never reaching "Bound": toggling the accessibility master
      * switch did nothing whatever - the other services stayed bound straight
      * through it and no bind was even attempted - and taking our entry out of the
-     * enabled list did not dislodge it either. Killing the process made the
+     * enabled list seemed not to dislodge it either. Killing the process made the
      * half-open connection die, and the next start bound on the first try.
+     *
+     * Revisited 1 Oct 2026, when the binding stuck again after a boot and this
+     * restart did *not* clear it: the process came back, the platform never tried
+     * to bind, and the bars stayed on the fallback host all day. The removal that
+     * "did not dislodge it" in September had been undone within milliseconds by
+     * our own guard, so the platform never saw it. With the entry held out for a
+     * few seconds the removal emptied the binding queue and the re-add bound at
+     * once, process restart or no - which is why [AccessibilityGuard.rebind] now
+     * holds it, and why this rung comes after it rather than instead of it.
      *
      * The alarm is set before the kill, and committed, not applied: a process
      * about to die finishes nothing it has merely queued. A sticky service is
@@ -2275,7 +2292,7 @@ class NavBarService : Service() {
         const val ACTION_REPAIR = "com.example.esmerui.NAVBAR_REPAIR"
         const val EXTRA_ACTION = "action"
 
-        /** Debug only: exercises the process restart that clears a stuck binding. */
+        /** Debug only: exercises the accessibility rebind that clears a stuck binding. */
         fun repairAccessibility(context: Context) {
             runCatching {
                 context.startService(

@@ -77,13 +77,16 @@ object BusWatch : BroadcastReceiver() {
     private const val ACTION_PRESENT = "com.example.esmerui.PRESENT"
 
     /**
-     * Runs the last rung of the accessibility repair - the process restart that
-     * clears a binding the platform has left half-open:
+     * Runs the accessibility rebind - our entry taken out of the enabled list, held
+     * out until the platform has seen it gone, and put back - which is what clears
+     * a binding the platform has left half-open:
      *
      *     adb shell am broadcast -a com.example.esmerui.REPAIR -p com.example.esmerui
      *
      * Debug builds only. The path it exercises runs by itself when the binding is
-     * actually stuck; this is the only way to watch it work on a healthy unit.
+     * actually stuck; this is the only way to watch it work on a healthy unit,
+     * where it shows as the service disconnecting and connecting again a few
+     * seconds later (tag NavBarService, "debug rebind finished; connected=true").
      */
     private const val ACTION_REPAIR = "com.example.esmerui.REPAIR"
 
@@ -116,7 +119,7 @@ object BusWatch : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action == ACTION_REPAIR) {
             if (!debuggable(context)) return
-            Log.i(TAG, "repair: restarting the process to clear the accessibility binding")
+            Log.i(TAG, "repair: forcing an accessibility rebind")
             com.example.esmerui.navbar.NavBarService.repairAccessibility(context)
             return
         }

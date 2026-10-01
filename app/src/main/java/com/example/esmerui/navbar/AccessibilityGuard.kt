@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.util.Log
 
@@ -40,6 +41,9 @@ object AccessibilityGuard {
      */
     fun ensureEnabled(context: Context): Boolean {
         if (isListed(context)) return true
+        // A rebind has taken us out on purpose and puts us back itself. Re-adding
+        // here would undo the removal before the platform has seen it; see [rebind].
+        if (isRebinding) return true
 
         val updated = (currentEntries(context) + component(context).flattenToString())
             .filter { it.isNotBlank() }
@@ -80,34 +84,61 @@ object AccessibilityGuard {
      * changed nothing at all. Read out of this ROM's own services.jar on
      * 26 Sep 2026, after a day of "rebinds" that had left Back dead every time.
      *
-     * [NavBarService] watches the same list and re-adds us the moment we are gone,
-     * so the removal may well be undone before the delay here elapses. That is
-     * fine: the platform handles the two notifications in order, and the re-add is
-     * the same re-add whoever makes it.
+     * The removal has to *stay* removed until the platform has acted on it. A
+     * content observer is told that the setting changed, not what it changed to:
+     * the accessibility manager wakes on its own thread and reads the list as it
+     * is then. [NavBarService] watches the same list and used to re-add us the
+     * moment we were gone, so by the time the platform looked, the list named us
+     * again, nothing had changed, and the half-open connection stayed exactly where
+     * it was. That was the "rebind" that never rebound anything on 25 Sep 2026, and
+     * again on 1 Oct 2026, when the same removal done by hand with the re-add held
+     * back a few seconds emptied the platform's binding queue and the re-add bound
+     * first time. So [ensureEnabled] stands down while [isRebinding], and the
+     * delay is long enough for the platform to have gone round.
      */
     fun rebind(context: Context, onDone: () -> Unit) {
         val us = component(context)
         val remaining = currentEntries(context)
             .filterNot { it.equalsComponent(us) }
             .joinToString(SEPARATOR.toString())
+        rebindUntil = SystemClock.elapsedRealtime() + REBIND_HOLD_MS
         runCatching {
             Settings.Secure.putString(
                 context.contentResolver,
                 Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
                 remaining,
             )
-            Log.i(TAG, "Rebinding the accessibility service")
+            Log.i(TAG, "Rebinding the accessibility service: removed, re-adding in ${REBIND_HOLD_MS}ms")
             Handler(Looper.getMainLooper()).postDelayed({
+                rebindUntil = 0L
                 ensureEnabled(context)
                 onDone()
-            }, REBIND_DELAY_MS)
+            }, REBIND_HOLD_MS)
         }.onFailure {
+            rebindUntil = 0L
             Log.w(TAG, "Cannot rebind accessibility: ${it.message}")
             onDone()
         }
     }
 
-    private const val REBIND_DELAY_MS = 600L
+    /**
+     * True while [rebind] is holding our entry out of the list. Deadline-based
+     * rather than a flag, so a rebind whose callback never ran cannot leave the
+     * guard standing down for ever.
+     */
+    val isRebinding: Boolean get() = SystemClock.elapsedRealtime() < rebindUntil
+
+    @Volatile
+    private var rebindUntil = 0L
+
+    /**
+     * How long the removal is left standing. The platform's observer runs within
+     * milliseconds on an idle unit, but this list is rewritten by other apps and
+     * read on a busy system thread; three seconds is what was measured to work by
+     * hand on 1 Oct 2026, and a bar without Back for three seconds is nothing
+     * next to a bar without Back until the next reboot.
+     */
+    private const val REBIND_HOLD_MS = 3_000L
 
     /** The head unit's own list of apps the system may start; see [openAutostartManager]. */
     const val ACTION_AUTOSTART_MANAGER = "android.intent.action.BYD_APPSTARTMANAGEMENT"
