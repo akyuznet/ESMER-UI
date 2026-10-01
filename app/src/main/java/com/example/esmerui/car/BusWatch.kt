@@ -90,6 +90,18 @@ object BusWatch : BroadcastReceiver() {
      */
     private const val ACTION_REPAIR = "com.example.esmerui.REPAIR"
 
+    /**
+     * Feeds the bar service a car power level, as if the bus had reported it, and
+     * keeps the real reading out for `hold` seconds (default 5):
+     *
+     *     adb shell am broadcast -a com.example.esmerui.POWER -p com.example.esmerui \
+     *         --ei level 0 [--ei hold 5]
+     *
+     * Debug builds only. Level 0 stands the accessibility service down the way an
+     * ignition-off does; the real level coming back after the hold stands it up.
+     */
+    private const val ACTION_POWER = "com.example.esmerui.POWER"
+
     private const val MAX_HZ = 20
     private const val MAX_SECONDS = 600
     private const val HEARTBEAT_MS = 1_000L
@@ -105,6 +117,7 @@ object BusWatch : BroadcastReceiver() {
             addAction(ACTION_SET)
             addAction(ACTION_PRESENT)
             addAction(ACTION_REPAIR)
+            addAction(ACTION_POWER)
         })
     }
 
@@ -117,6 +130,15 @@ object BusWatch : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_POWER) {
+            if (!debuggable(context)) return
+            val level = intent.getIntExtra("level", -1)
+            val hold = intent.getIntExtra("hold", 5)
+            Log.i(TAG, "power: simulating level $level for $hold s")
+            com.example.esmerui.navbar.NavBarService.simulatePower(context, level, hold)
+            return
+        }
+
         if (intent.action == ACTION_REPAIR) {
             if (!debuggable(context)) return
             Log.i(TAG, "repair: forcing an accessibility rebind")

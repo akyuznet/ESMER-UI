@@ -218,6 +218,22 @@ object CarBus {
      * like every other write the bar makes.
      */
     private const val BODYWORK = "Bodywork"
+    private const val BODYWORK_DEVICE = "bodywork.BYDAutoBodyworkDevice"
+
+    // ---- Power ------------------------------------------------------------
+
+    /** The level that means the car is off; the others are ACC, on and ready. */
+    val carOff: Int by lazy {
+        BydFeatures.deviceConstant(BODYWORK_DEVICE, "BODYWORK_POWER_LEVEL_OFF") ?: 0
+    }
+
+    /**
+     * The car's power level, 0 off / 1 ACC / 2 on / 3 ready on this ROM. Polled
+     * fast by the bar service: the head unit force-stops every third-party app
+     * about a second after this reads off, and the bar has to act before that.
+     */
+    fun powerLevel(): Int? =
+        BydFeatures.readInt(BODYWORK, "BODYWORK_POWER_LEVEL")?.takeIf { it != UNAVAILABLE }
 
     /**
      * What the roof is built from, as `getMoonRoofConfig` reports it. A car can

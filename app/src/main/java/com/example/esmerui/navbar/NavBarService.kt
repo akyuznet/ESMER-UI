@@ -6,9 +6,11 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Service
+import android.content.BroadcastReceiver
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.content.IntentFilter
 import android.graphics.Color
 import android.graphics.PixelFormat
 import android.graphics.Typeface
@@ -229,6 +231,72 @@ class NavBarService : Service() {
         startInForeground()
         watchAccessibilitySetting()
         watchSystemBarPolicy()
+        watchPowerLevel()
+    }
+
+    /**
+     * Unbinds the accessibility service cleanly when the car switches off, so
+     * the head unit's force-stop a second later does not leave it half-bound for
+     * good; see [AccessibilityGuard.standDown] for the mechanism.
+     *
+     * The car's power level is polled rather than listened for: the SDK's
+     * listeners are abstract classes behind hidden interfaces, and one binder read
+     * four times a second costs nothing next to the status poll. Measured on the
+     * unit on 1 Oct 2026, the level reads off about 950 ms before the kill. The
+     * shutdown broadcast is a second trigger, some 700 ms ahead of the kill, for a
+     * car whose bus is unreadable.
+     */
+    private fun watchPowerLevel() {
+        if (CarBus.isAvailable) pollHandler.post(powerPoll)
+        registerReceiver(shutdownReceiver, IntentFilter(Intent.ACTION_SHUTDOWN))
+    }
+
+    /** Last power level seen by [powerPoll]; null until the first read. */
+    private var powerLevel: Int? = null
+
+    private val powerPoll = object : Runnable {
+        override fun run() {
+            // A debug hook can stand in for the car for a few seconds; see ACTION_POWER.
+            if (SystemClock.elapsedRealtime() >= simulatedPowerUntil) onPowerLevel(CarBus.powerLevel())
+            pollHandler.postDelayed(this, POWER_POLL_INTERVAL_MS)
+        }
+    }
+
+    private var simulatedPowerUntil = 0L
+
+    /**
+     * Transitions only. A process that comes up while the car is already off -
+     * which is what happens right after the quickboot - binds as normal and stays
+     * bound, since nothing is about to kill it again.
+     */
+    private fun onPowerLevel(level: Int?) {
+        val previous = powerLevel
+        powerLevel = level
+        if (level == null || previous == null || level == previous) return
+        if (level == CarBus.carOff) {
+            standDownAccessibility("power level $previous -> $level")
+        } else if (previous == CarBus.carOff) {
+            standUpAccessibility("power level $previous -> $level")
+        }
+    }
+
+    private val shutdownReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context, intent: Intent) {
+            if (intent.action == Intent.ACTION_SHUTDOWN) standDownAccessibility("shutdown broadcast")
+        }
+    }
+
+    private fun standDownAccessibility(reason: String) {
+        if (AccessibilityGuard.isStandingDown) return
+        // A repair ladder in flight would otherwise put the entry straight back.
+        verifyingAccessibility = false
+        AccessibilityGuard.standDown(this, reason)
+    }
+
+    private fun standUpAccessibility(reason: String) {
+        if (!AccessibilityGuard.isStandingDown) return
+        AccessibilityGuard.standUp(this, reason)
+        verifyAccessibility(attempt = 0)
     }
 
     /**
@@ -310,6 +378,17 @@ class NavBarService : Service() {
         // rung that clears a stuck binding. A path that only executes when something
         // is already broken is otherwise impossible to see working; on a healthy
         // unit this unbinds us and binds us again, which is the same two steps.
+        // Debug only, from BusWatch: feed a power level as if the car reported it,
+        // and keep the real reading out for a few seconds so the stand-down can
+        // be watched landing before the level comes back.
+        if (intent?.action == ACTION_POWER) {
+            val level = intent.getIntExtra(EXTRA_LEVEL, -1)
+            val holdMs = intent.getIntExtra(EXTRA_HOLD_SECONDS, 5) * 1_000L
+            Log.i(TAG, "debug: simulating power level $level for ${holdMs}ms")
+            simulatedPowerUntil = SystemClock.elapsedRealtime() + holdMs
+            onPowerLevel(level)
+            return START_STICKY
+        }
         if (intent?.action == ACTION_REPAIR) {
             Log.i(TAG, "debug: forcing an accessibility rebind")
             AccessibilityGuard.rebind(this) {
@@ -333,6 +412,8 @@ class NavBarService : Service() {
         policyObserver?.let { contentResolver.unregisterContentObserver(it) }
         policyObserver = null
         pollHandler.removeCallbacks(reassertSystemBars)
+        pollHandler.removeCallbacks(powerPoll)
+        runCatching { unregisterReceiver(shutdownReceiver) }
         BusWatch.unregister(this)
         super.onDestroy()
     }
@@ -1904,6 +1985,7 @@ class NavBarService : Service() {
      * into a stream of accessibility restarts.
      */
     private fun repairAccessibility(retry: () -> Boolean) {
+        if (AccessibilityGuard.isStandingDown) return
         val now = SystemClock.elapsedRealtime()
         if (now - lastRepairAt < REPAIR_COOLDOWN_MS) {
             warnAccessibility()
@@ -1954,7 +2036,8 @@ class NavBarService : Service() {
             verifyingAccessibility = true
         }
         pollHandler.postDelayed({
-            if (NavAccessibilityService.isConnected) {
+            // Unbound on purpose while the car is off; the stand-up restarts this.
+            if (NavAccessibilityService.isConnected || AccessibilityGuard.isStandingDown) {
                 verifyingAccessibility = false
                 return@postDelayed
             }
@@ -2125,6 +2208,13 @@ class NavBarService : Service() {
          */
         private const val POLL_INTERVAL_MS = 1_000L
 
+        /**
+         * The power level alone, read often enough to beat the quickboot: the
+         * kill follows the level going off by about a second, and the stand-down
+         * needs a few hundred milliseconds of that to be processed.
+         */
+        private const val POWER_POLL_INTERVAL_MS = 250L
+
         /** Half a flash: roughly the rate a car's own indicator ticks at. */
         private const val BLINK_INTERVAL_MS = 380L
 
@@ -2290,7 +2380,22 @@ class NavBarService : Service() {
         const val ACTION_STOP = "com.example.esmerui.NAVBAR_STOP"
         const val ACTION_PERFORM = "com.example.esmerui.NAVBAR_PERFORM"
         const val ACTION_REPAIR = "com.example.esmerui.NAVBAR_REPAIR"
+        const val ACTION_POWER = "com.example.esmerui.NAVBAR_POWER"
         const val EXTRA_ACTION = "action"
+        const val EXTRA_LEVEL = "level"
+        const val EXTRA_HOLD_SECONDS = "hold"
+
+        /** Debug only: pretends the car reported [level] for [holdSeconds]. */
+        fun simulatePower(context: Context, level: Int, holdSeconds: Int) {
+            runCatching {
+                context.startService(
+                    Intent(context, NavBarService::class.java)
+                        .setAction(ACTION_POWER)
+                        .putExtra(EXTRA_LEVEL, level)
+                        .putExtra(EXTRA_HOLD_SECONDS, holdSeconds),
+                )
+            }
+        }
 
         /** Debug only: exercises the accessibility rebind that clears a stuck binding. */
         fun repairAccessibility(context: Context) {

@@ -43,7 +43,8 @@ object AccessibilityGuard {
         if (isListed(context)) return true
         // A rebind has taken us out on purpose and puts us back itself. Re-adding
         // here would undo the removal before the platform has seen it; see [rebind].
-        if (isRebinding) return true
+        // A stand-down has taken us out to stay out until the car is back on.
+        if (isRebinding || isStandingDown) return true
 
         val updated = (currentEntries(context) + component(context).flattenToString())
             .filter { it.isNotBlank() }
@@ -97,6 +98,10 @@ object AccessibilityGuard {
      * delay is long enough for the platform to have gone round.
      */
     fun rebind(context: Context, onDone: () -> Unit) {
+        if (isStandingDown) {
+            onDone()
+            return
+        }
         val us = component(context)
         val remaining = currentEntries(context)
             .filterNot { it.equalsComponent(us) }
@@ -120,6 +125,64 @@ object AccessibilityGuard {
             onDone()
         }
     }
+
+    /**
+     * Takes our entry out of the list ahead of the head unit killing us, and holds
+     * it out until [standUp].
+     *
+     * On ACC off this ROM runs a "quickboot": every third-party package is
+     * force-stopped about a second after the car's power level reads off, and
+     * without the package-restarted broadcast an ordinary force-stop sends. The
+     * accessibility manager therefore sees only our service's binder die, and its
+     * handling of that (`serviceDisconnectedLocked`, read from this ROM's
+     * services.jar on 1 Oct 2026) is to put the service into its *binding* set, on
+     * the assumption that the activity manager is about to restart it. Nothing
+     * restarts a force-stopped service, only a force-stop or a package update ever
+     * takes the entry out again, and every later bind is skipped because the entry
+     * is there. That is the state the unit was found in after every ignition
+     * cycle: bars on the fallback host, apps drawing under them, Back dead, until
+     * a force-stop from a shell.
+     *
+     * A service that is unbound *cleanly* before the kill never dies on the
+     * platform, so it is never marked binding. Removing our entry is that clean
+     * unbind; the platform processes it in milliseconds, well inside the second
+     * the quickboot leaves. The next start of our process re-adds the entry, and
+     * that bind lands because by then the process is running.
+     */
+    fun standDown(context: Context, reason: String): Boolean {
+        if (standingDown) return true
+        standingDown = true
+        val us = component(context)
+        val remaining = currentEntries(context)
+            .filterNot { it.equalsComponent(us) }
+            .joinToString(SEPARATOR.toString())
+        return runCatching {
+            Settings.Secure.putString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+                remaining,
+            )
+            Log.i(TAG, "Standing down the accessibility service: $reason")
+            true
+        }.onFailure {
+            standingDown = false
+            Log.w(TAG, "Cannot stand down accessibility: ${it.message}")
+        }.getOrDefault(false)
+    }
+
+    /** Ends a [standDown] and puts our entry back, which binds afresh. */
+    fun standUp(context: Context, reason: String): Boolean {
+        if (!standingDown) return true
+        standingDown = false
+        Log.i(TAG, "Standing the accessibility service back up: $reason")
+        return ensureEnabled(context)
+    }
+
+    /** True while [standDown] is holding our entry out of the list. */
+    val isStandingDown: Boolean get() = standingDown
+
+    @Volatile
+    private var standingDown = false
 
     /**
      * True while [rebind] is holding our entry out of the list. Deadline-based
