@@ -108,6 +108,9 @@ object BusWatch : BroadcastReceiver() {
      *     adb shell am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui \n     *         --es component com.waze/.MainActivity
      *     adb shell am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui --ez stop true
      *     adb shell am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui --ez connect true
+     *     ... --ez float true|false        (the floating mirror)
+     *     ... --es placement LEFT_HALF        (or CUSTOM --es bounds l,t,r,b)
+     *     ... --es scaling ZOOM
      */
     private const val ACTION_PROJECT = "com.example.esmerui.PROJECT"
 
@@ -143,9 +146,23 @@ object BusWatch : BroadcastReceiver() {
         if (intent.action == ACTION_PROJECT) {
             if (!debuggable(context)) return
             val projection = com.example.esmerui.cluster.ClusterProjection
+            val placement = intent.getStringExtra("placement")
+            val scaling = intent.getStringExtra("scaling")
             when {
                 intent.getBooleanExtra("stop", false) -> projection.stop(context)
                 intent.getBooleanExtra("connect", false) -> projection.connect(context)
+                intent.hasExtra("float") -> {
+                    val window = com.example.esmerui.cluster.ClusterMirrorWindow
+                    if (intent.getBooleanExtra("float", false)) window.show(context) else window.hide()
+                }
+                placement != null -> projection.setPlacement(
+                    context,
+                    com.example.esmerui.cluster.ClusterPlacement.from(placement),
+                    com.example.esmerui.cluster.ClusterGeometry.decode(intent.getStringExtra("bounds")),
+                )
+                scaling != null -> projection.setScaling(
+                    context, com.example.esmerui.cluster.MirrorScaling.from(scaling),
+                )
                 else -> {
                     val component = intent.getStringExtra("component")
                         ?.let { android.content.ComponentName.unflattenFromString(it) }

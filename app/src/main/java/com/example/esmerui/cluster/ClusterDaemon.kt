@@ -52,7 +52,7 @@ object ClusterDaemon {
     private const val APP_PACKAGE = "com.example.esmerui"
 
     /** Bumped whenever the wire contract below changes; a running daemon reports its own. */
-    const val PROTOCOL = 3
+    const val PROTOCOL = 5
 
     const val TXN_PING = 1
     const val TXN_MIRROR_START = 2
@@ -65,6 +65,10 @@ object ClusterDaemon {
     /** Reads or sets a display's default windowing mode (needs INTERNAL_SYSTEM_WINDOW). */
     const val TXN_GET_DISPLAY_MODE = 8
     const val TXN_SET_DISPLAY_MODE = 9
+    /** Moves and resizes a freeform task (needs MANAGE_ACTIVITY_STACKS). */
+    const val TXN_SET_TASK_BOUNDS = 10
+    /** Docks a task as split-screen primary at given bounds: a sized window with no caption. */
+    const val TXN_SET_TASK_SPLIT = 11
 
     /** How long the daemon keeps re-announcing its binder for an app that started late. */
     private const val ANNOUNCE_MS = 60_000L
@@ -186,20 +190,35 @@ object ClusterDaemon {
                     return true
                 }
                 TXN_MIRROR_START -> {
+                    val slot = data.readInt()
                     val layerStack = data.readInt()
-                    val clusterW = data.readInt()
-                    val clusterH = data.readInt()
-                    val viewW = data.readInt()
-                    val viewH = data.readInt()
+                    val source = Rect(data.readInt(), data.readInt(), data.readInt(), data.readInt())
+                    val target = Rect(data.readInt(), data.readInt(), data.readInt(), data.readInt())
                     val surface = Surface.CREATOR.createFromParcel(data)
-                    val ok = Mirror.start(layerStack, clusterW, clusterH, viewW, viewH, surface)
+                    val ok = Mirror.start(slot, layerStack, source, target, surface)
                     reply?.writeNoException()
                     reply?.writeInt(if (ok) 1 else 0)
                     return true
                 }
                 TXN_MIRROR_STOP -> {
-                    Mirror.stop()
+                    Mirror.stop(data.readInt())
                     reply?.writeNoException()
+                    return true
+                }
+                TXN_SET_TASK_BOUNDS -> {
+                    val taskId = data.readInt()
+                    val bounds = Rect(data.readInt(), data.readInt(), data.readInt(), data.readInt())
+                    val ok = Tasks.setBounds(taskId, bounds)
+                    reply?.writeNoException()
+                    reply?.writeInt(if (ok) 1 else 0)
+                    return true
+                }
+                TXN_SET_TASK_SPLIT -> {
+                    val taskId = data.readInt()
+                    val bounds = Rect(data.readInt(), data.readInt(), data.readInt(), data.readInt())
+                    val ok = Tasks.setSplitScreen(taskId, bounds)
+                    reply?.writeNoException()
+                    reply?.writeInt(if (ok) 1 else 0)
                     return true
                 }
                 TXN_INJECT_MOTION -> {
@@ -241,7 +260,7 @@ object ClusterDaemon {
                     reply?.writeNoException()
                     log("exit requested")
                     Handler(Looper.getMainLooper()).post {
-                        Mirror.stop()
+                        Mirror.stopAll()
                         Process.killProcess(Process.myPid())
                     }
                     return true
@@ -254,26 +273,25 @@ object ClusterDaemon {
     // ── Mirror ───────────────────────────────────────────────────────────────
 
     /**
-     * A SurfaceFlinger display that composites the cluster's layer stack into the
-     * app's surface, letterboxed. The same mechanism as screen mirroring; the
-     * methods are hidden but present on this ROM, and need the shell's
-     * ACCESS_SURFACE_FLINGER.
+     * SurfaceFlinger displays that composite the cluster's layer stack into
+     * surfaces the app owns - one per slot, so the settings preview and the
+     * floating window can both be live. The same mechanism as screen mirroring;
+     * the methods are hidden but present on this ROM, and need the shell's
+     * ACCESS_SURFACE_FLINGER. The app sends the rectangles, so what it draws
+     * and where it maps touches cannot disagree with what is composited.
      */
     private object Mirror {
-        private var token: IBinder? = null
+        private val tokens = HashMap<Int, IBinder>()
 
         @Synchronized
-        fun start(
-            layerStack: Int, clusterW: Int, clusterH: Int,
-            viewW: Int, viewH: Int, surface: Surface?,
-        ): Boolean {
-            stop()
+        fun start(slot: Int, layerStack: Int, source: Rect, target: Rect, surface: Surface?): Boolean {
+            stop(slot)
             if (surface == null || !surface.isValid) {
-                log("mirror: surface invalid")
+                log("mirror $slot: surface invalid")
                 return false
             }
-            if (clusterW <= 0 || clusterH <= 0 || viewW <= 0 || viewH <= 0) {
-                log("mirror: bad geometry $clusterW x $clusterH -> $viewW x $viewH")
+            if (source.isEmpty || target.isEmpty) {
+                log("mirror $slot: bad geometry $source -> $target")
                 return false
             }
             return runCatching {
@@ -281,17 +299,9 @@ object ClusterDaemon {
                 val create = surfaceControl.getDeclaredMethod(
                     "createDisplay", String::class.java, Boolean::class.javaPrimitiveType,
                 ).apply { isAccessible = true }
-                val display = create.invoke(null, "esmerui_cluster_mirror", false) as? IBinder
+                val display = create.invoke(null, "esmerui_cluster_mirror_$slot", false) as? IBinder
                     ?: error("createDisplay returned null")
-                token = display
-
-                val scale = minOf(viewW.toFloat() / clusterW, viewH.toFloat() / clusterH)
-                val drawW = (clusterW * scale).toInt()
-                val drawH = (clusterH * scale).toInt()
-                val offX = (viewW - drawW) / 2
-                val offY = (viewH - drawH) / 2
-                val source = Rect(0, 0, clusterW, clusterH)
-                val target = Rect(offX, offY, offX + drawW, offY + drawH)
+                tokens[slot] = display
 
                 val transaction = SurfaceControl.Transaction()
                 val type = transaction.javaClass
@@ -307,26 +317,28 @@ object ClusterDaemon {
                 ).apply { isAccessible = true }.invoke(transaction, display, 0, source, target)
                 transaction.apply()
                 transaction.close()
-                log("mirror on: layer stack $layerStack, $clusterW x $clusterH into $target")
+                log("mirror $slot on: layer stack $layerStack, $source into $target")
                 true
             }.onFailure {
-                log("mirror failed: ${it.cause ?: it}")
-                stop()
+                log("mirror $slot failed: ${it.cause ?: it}")
+                stop(slot)
             }.getOrDefault(false)
         }
 
         @Synchronized
-        fun stop() {
-            val display = token ?: return
-            token = null
+        fun stop(slot: Int) {
+            val display = tokens.remove(slot) ?: return
             runCatching {
                 Class.forName("android.view.SurfaceControl")
                     .getDeclaredMethod("destroyDisplay", IBinder::class.java)
                     .apply { isAccessible = true }
                     .invoke(null, display)
-                log("mirror off")
-            }.onFailure { log("mirror teardown failed: ${it.cause ?: it}") }
+                log("mirror $slot off")
+            }.onFailure { log("mirror $slot teardown failed: ${it.cause ?: it}") }
         }
+
+        @Synchronized
+        fun stopAll() = tokens.keys.toList().forEach { stop(it) }
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────────
@@ -348,6 +360,39 @@ object ClusterDaemon {
             log("task $taskId windowing mode -> $mode")
             true
         }.onFailure { log("task $taskId windowing mode $mode failed: ${it.cause ?: it}") }
+            .getOrDefault(false)
+
+        /** Freeform tasks only: a fullscreen one refuses, which is why mode comes first. */
+        fun setBounds(taskId: Int, bounds: Rect): Boolean = runCatching {
+            val service = Class.forName("android.app.ActivityTaskManager")
+                .getMethod("getService").invoke(null)
+                ?: error("no activity task manager")
+            service.javaClass.getMethod(
+                "resizeTask", Int::class.javaPrimitiveType, Rect::class.java, Int::class.javaPrimitiveType,
+            ).invoke(service, taskId, bounds, 0)
+            log("task $taskId bounds -> $bounds")
+            true
+        }.onFailure { log("task $taskId bounds $bounds failed: ${it.cause ?: it}") }
+            .getOrDefault(false)
+
+        /**
+         * Split-screen primary at explicit bounds. A freeform task carries the
+         * decor caption (the ROM's blue bar with minimise and close); a docked one
+         * does not, so this is tried first for any window smaller than the display.
+         * Signature on Android 10: (taskId, createMode, toTop, animate, initialBounds, showRecents).
+         */
+        fun setSplitScreen(taskId: Int, bounds: Rect): Boolean = runCatching {
+            val service = Class.forName("android.app.ActivityTaskManager")
+                .getMethod("getService").invoke(null)
+                ?: error("no activity task manager")
+            val result = service.javaClass.getMethod(
+                "setTaskWindowingModeSplitScreenPrimary",
+                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
+                Boolean::class.javaPrimitiveType, Rect::class.java, Boolean::class.javaPrimitiveType,
+            ).invoke(service, taskId, 0, true, false, bounds, false)
+            log("task $taskId split-screen at $bounds -> $result")
+            result == true
+        }.onFailure { log("task $taskId split-screen $bounds failed: ${it.cause ?: it}") }
             .getOrDefault(false)
 
         private fun windowManager(): Any =

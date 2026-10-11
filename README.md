@@ -88,6 +88,18 @@ The Cluster tab casts any app onto the instrument cluster behind the wheel and s
 a live mirror of it on the head unit, which you tap and swipe to drive the app. Pick
 the app, press `Project to cluster`; `Stop` hands the dial back to the car.
 
+- **Floating mirror** — `Float the mirror` (or a `Cluster mirror` bar button) opens the
+  live mirror as a draggable, resizable window over whatever is on screen, so the
+  cluster app can be answered without leaving the one you are in. Back goes to the
+  cluster app; its place and size are remembered.
+- **Cluster window** — Full, Left half, Right half, Center, or `Resize` to drag a frame
+  on the preview to any size and position; `Keep cluster aspect` locks the frame to
+  the dial's 8:3 shape.
+- **Mirror scaling** — Fit, Stretch or Zoom for how the 1920×720 image fills the
+  preview and the floating window.
+- **Auto-start on power-on** — casts the last-used app again each time the car powers
+  on. A `Cast to cluster` bar button starts or stops it by hand.
+
 On this unit the cluster is a second OS on the same chip, and the head unit publishes
 its projected layer as a 1920×720 display that only an allowlisted caller may switch
 the dial over to. The launcher therefore talks to the unit's own wireless ADB on

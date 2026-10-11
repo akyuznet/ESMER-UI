@@ -41,6 +41,8 @@ import androidx.core.view.isVisible
 import com.example.esmerui.car.BusWatch
 import com.example.esmerui.car.BydFeatures
 import com.example.esmerui.car.CarBus
+import com.example.esmerui.cluster.ClusterMirrorWindow
+import com.example.esmerui.cluster.ClusterProjection
 import com.example.esmerui.car.CarControl
 import com.example.esmerui.car.CarInfo
 import com.example.esmerui.car.CarStatus
@@ -232,7 +234,14 @@ class NavBarService : Service() {
         watchAccessibilitySetting()
         watchSystemBarPolicy()
         watchPowerLevel()
+        // The bar buttons recolour with the projection and the mirror, which change
+        // on their own thread rather than on a press.
+        ClusterProjection.addListener(clusterListener)
+        ClusterMirrorWindow.addListener(clusterListener)
+        ClusterProjection.onServiceStart(this)
     }
+
+    private val clusterListener: () -> Unit = { refreshButtonStates() }
 
     /**
      * Unbinds the accessibility service cleanly when the car switches off, so
@@ -275,8 +284,10 @@ class NavBarService : Service() {
         if (level == null || previous == null || level == previous) return
         if (level == CarBus.carOff) {
             standDownAccessibility("power level $previous -> $level")
+            ClusterProjection.onCarOff(this)
         } else if (previous == CarBus.carOff) {
             standUpAccessibility("power level $previous -> $level")
+            ClusterProjection.autoStart(this, "power level $previous -> $level")
         }
     }
 
@@ -1921,6 +1932,9 @@ class NavBarService : Service() {
             NavAction.AIRFLOW_FEET -> car { CarControl.toggleVent(Vent.FOOT) }
             NavAction.AIRFLOW_SCREEN -> car { CarControl.toggleVent(Vent.SCREEN) }
             NavAction.STEERING_HEAT -> car { CarControl.toggleSteeringHeat() }
+
+            NavAction.CLUSTER_CAST -> ClusterProjection.toggle(this)
+            NavAction.CLUSTER_MIRROR -> ClusterMirrorWindow.toggle(this)
 
             NavAction.HUD_POWER -> car { CarControl.toggleHud() }
             NavAction.HUD_NAV -> car { CarControl.toggleHudNavigation() }

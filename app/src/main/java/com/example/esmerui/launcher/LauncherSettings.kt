@@ -112,6 +112,12 @@ class LauncherSettings private constructor(context: Context) {
     private var clusterComponentState by mutableStateOf(
         prefs.getString(KEY_CLUSTER_COMPONENT, null)
     )
+    private var clusterPlacementState by mutableStateOf(prefs.getString(KEY_CLUSTER_PLACEMENT, null))
+    private var clusterBoundsState by mutableStateOf(prefs.getString(KEY_CLUSTER_BOUNDS, null))
+    private var clusterKeepAspectState by mutableStateOf(prefs.getBoolean(KEY_CLUSTER_KEEP_ASPECT, false))
+    private var clusterScalingState by mutableStateOf(prefs.getString(KEY_CLUSTER_SCALING, null))
+    private var clusterAutoStartState by mutableStateOf(prefs.getBoolean(KEY_CLUSTER_AUTO_START, false))
+    private var clusterFloatRectState by mutableStateOf(prefs.getString(KEY_CLUSTER_FLOAT_RECT, null))
     private var windowWidthState by mutableIntStateOf(
         prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH).coerceIn(WINDOW_SIZE_RANGE)
     )
@@ -147,6 +153,54 @@ class LauncherSettings private constructor(context: Context) {
         set(value) {
             clusterComponentState = value
             prefs.edit().putString(KEY_CLUSTER_COMPONENT, value).apply()
+        }
+
+    /** A [com.example.esmerui.cluster.ClusterPlacement] name: where the cast window sits. */
+    var clusterPlacement: String?
+        get() = clusterPlacementState
+        set(value) {
+            clusterPlacementState = value
+            prefs.edit().putString(KEY_CLUSTER_PLACEMENT, value).apply()
+        }
+
+    /** The custom placement's bounds on the cluster, `l,t,r,b` in cluster pixels. */
+    var clusterBounds: String?
+        get() = clusterBoundsState
+        set(value) {
+            clusterBoundsState = value
+            prefs.edit().putString(KEY_CLUSTER_BOUNDS, value).apply()
+        }
+
+    /** Whether the resize frame keeps the cluster's own 8:3 shape. */
+    var clusterKeepAspect: Boolean
+        get() = clusterKeepAspectState
+        set(value) {
+            clusterKeepAspectState = value
+            prefs.edit().putBoolean(KEY_CLUSTER_KEEP_ASPECT, value).apply()
+        }
+
+    /** A [com.example.esmerui.cluster.MirrorScaling] name: how the mirror fills its view. */
+    var clusterScaling: String?
+        get() = clusterScalingState
+        set(value) {
+            clusterScalingState = value
+            prefs.edit().putString(KEY_CLUSTER_SCALING, value).apply()
+        }
+
+    /** Cast the last-used app whenever the car powers on. */
+    var clusterAutoStart: Boolean
+        get() = clusterAutoStartState
+        set(value) {
+            clusterAutoStartState = value
+            prefs.edit().putBoolean(KEY_CLUSTER_AUTO_START, value).apply()
+        }
+
+    /** The floating mirror's last position and size, `x,y,w,h` in screen pixels. */
+    var clusterFloatRect: String?
+        get() = clusterFloatRectState
+        set(value) {
+            clusterFloatRectState = value
+            prefs.edit().putString(KEY_CLUSTER_FLOAT_RECT, value).apply()
         }
 
     /** Which windowing technique to use. */
@@ -396,6 +450,12 @@ class LauncherSettings private constructor(context: Context) {
         windowComponentState = prefs.getString(KEY_WINDOW_COMPONENT, null)
         windowModeState = WindowMode.from(prefs.getString(KEY_WINDOW_MODE, null))
         clusterComponentState = prefs.getString(KEY_CLUSTER_COMPONENT, null)
+        clusterPlacementState = prefs.getString(KEY_CLUSTER_PLACEMENT, null)
+        clusterBoundsState = prefs.getString(KEY_CLUSTER_BOUNDS, null)
+        clusterKeepAspectState = prefs.getBoolean(KEY_CLUSTER_KEEP_ASPECT, false)
+        clusterScalingState = prefs.getString(KEY_CLUSTER_SCALING, null)
+        clusterAutoStartState = prefs.getBoolean(KEY_CLUSTER_AUTO_START, false)
+        clusterFloatRectState = prefs.getString(KEY_CLUSTER_FLOAT_RECT, null)
         windowWidthState = prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH)
             .coerceIn(WINDOW_SIZE_RANGE)
         windowHeightState = prefs.getInt(KEY_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT)
@@ -438,6 +498,12 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_WINDOW_COMPONENT = "window_component"
         private const val KEY_WINDOW_MODE = "window_mode"
         private const val KEY_CLUSTER_COMPONENT = "cluster_component"
+        private const val KEY_CLUSTER_PLACEMENT = "cluster_placement"
+        private const val KEY_CLUSTER_BOUNDS = "cluster_bounds"
+        private const val KEY_CLUSTER_KEEP_ASPECT = "cluster_keep_aspect"
+        private const val KEY_CLUSTER_SCALING = "cluster_scaling"
+        private const val KEY_CLUSTER_AUTO_START = "cluster_auto_start"
+        private const val KEY_CLUSTER_FLOAT_RECT = "cluster_float_rect"
         private const val KEY_WINDOW_WIDTH = "window_width_pct"
         private const val KEY_WINDOW_HEIGHT = "window_height_pct"
         private const val KEY_WINDOW_X = "window_x_pct"

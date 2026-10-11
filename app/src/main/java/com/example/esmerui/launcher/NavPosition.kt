@@ -38,6 +38,7 @@ enum class NavActionGroup(val label: String) {
     CLIMATE("Climate"),
     SEATS("Seats"),
     HUD("Head-up display"),
+    CLUSTER("Cluster projection"),
     ROOF("Roof"),
     BODY("Windows and tailgate"),
     INFO("Information"),
@@ -117,6 +118,11 @@ enum class NavAction(
     HUD_BRIGHTNESS_DOWN("HUD bright -", NavActionGroup.HUD, needsCar = true),
     HUD_HEIGHT_UP("HUD height +", NavActionGroup.HUD, needsCar = true),
     HUD_HEIGHT_DOWN("HUD height -", NavActionGroup.HUD, needsCar = true),
+
+    /** Casts the last-used app to the cluster, or stops the projection running. */
+    CLUSTER_CAST("Cast to cluster", NavActionGroup.CLUSTER),
+    /** Shows or hides the floating live mirror of the cluster. */
+    CLUSTER_MIRROR("Cluster mirror", NavActionGroup.CLUSTER),
 
     /**
      * The glass panel and the blind under it. Both travel to a commanded

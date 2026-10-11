@@ -2,6 +2,8 @@ package com.example.esmerui.navbar
 
 import com.example.esmerui.car.CarStatus
 import com.example.esmerui.car.Vent
+import com.example.esmerui.cluster.ClusterMirrorWindow
+import com.example.esmerui.cluster.ClusterProjection
 import com.example.esmerui.launcher.NavAction
 
 /**
@@ -50,7 +52,9 @@ object NavActionState {
         NavAction.WINDOW_LEFT_REAR,
         NavAction.WINDOW_RIGHT_REAR,
         NavAction.WINDOWS_ALL,
-        NavAction.TAILGATE -> true
+        NavAction.TAILGATE,
+        NavAction.CLUSTER_CAST,
+        NavAction.CLUSTER_MIRROR -> true
 
         else -> false
     }
@@ -87,6 +91,9 @@ object NavActionState {
         NavAction.AIRFLOW_FACE -> ventOpen(Vent.FACE)
         NavAction.AIRFLOW_FEET -> ventOpen(Vent.FOOT)
         NavAction.AIRFLOW_SCREEN -> ventOpen(Vent.SCREEN)
+
+        NavAction.CLUSTER_CAST -> ClusterProjection.phase == ClusterProjection.Phase.PROJECTING
+        NavAction.CLUSTER_MIRROR -> ClusterMirrorWindow.isShown
 
         NavAction.HUD_POWER -> CarStatus.hudOn
         // The two content switches only mean anything with the display lit, the

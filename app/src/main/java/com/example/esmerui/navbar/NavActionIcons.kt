@@ -98,6 +98,9 @@ object NavActionIcons {
         NavAction.TEMP_GROUP -> R.drawable.ic_thermostat
         NavAction.FAN_GROUP -> R.drawable.ic_fan
 
+        NavAction.CLUSTER_CAST -> R.drawable.ic_cluster_cast
+        NavAction.CLUSTER_MIRROR -> R.drawable.ic_cluster_mirror
+
         NavAction.HUD_POWER -> R.drawable.ic_hud
         NavAction.HUD_NAV -> R.drawable.ic_hud_nav
         NavAction.HUD_ADAS -> R.drawable.ic_hud_adas
