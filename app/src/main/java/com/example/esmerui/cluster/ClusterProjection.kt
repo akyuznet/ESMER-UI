@@ -207,9 +207,12 @@ object ClusterProjection {
             stopMirror(SLOT_FLOAT)
             val current = projected
             runCatching {
+                // The cluster display first, docked stacks dissolved before their apps
+                // die; then whatever sits in a slot, stopped before the slot goes so
+                // it cannot pop up on the main screen.
+                clearCluster(app)
                 if (current != null) shell(app, "am force-stop ${ClusterDaemon.quote(current.packageName)}")
                 detachSlot()
-                clearCluster(app)
                 releaseDisplay()
                 sendCode(app, CODE_PROJECTION_OFF)
                 SystemClock.sleep(CODE_SETTLE_MS / 3)
@@ -504,14 +507,52 @@ object ClusterProjection {
      */
     private fun clearCluster(context: Context, except: Int? = null) {
         val listing = AdbLink.shell(context, "am stack list")
-        val stacks = Regex("Stack id=([0-9]+) [^\n]*displayId=$CLUSTER_DISPLAY_ID\b")
-            .findAll(listing)
-            .map { it.groupValues[1].toInt() }
-            .filter { it != except }
-            .toList()
+        // Every package with a task on the cluster display, other than the one in
+        // the stack being kept: a docked stack with a task in it survives
+        // `am stack remove` on this ROM, and a new launch then joins that task.
+        var stackId = -1
+        var onCluster = false
+        val packages = LinkedHashSet<String>()
+        val tasks = ArrayList<Int>()
+        val stacks = ArrayList<Int>()
+        for (line in listing.lineSequence()) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("Stack id=")) {
+                stackId = Regex("Stack id=([0-9]+)").find(trimmed)?.groupValues?.get(1)?.toInt() ?: -1
+                onCluster = Regex("displayId=([0-9]+)").find(trimmed)?.groupValues?.get(1)?.toInt() == CLUSTER_DISPLAY_ID
+                if (onCluster && stackId != except) stacks += stackId
+                continue
+            }
+            if (!onCluster || stackId == except) continue
+            Regex("^taskId=([0-9]+): ([^/ ]+)/").find(trimmed)?.let {
+                tasks += it.groupValues[1].toInt()
+                packages += it.groupValues[2]
+            }
+        }
+        // Removing the last task of a docked stack on this display throws inside
+        // system_server and leaves the stack behind, so each task is made
+        // fullscreen (which also dissolves a docked stack) before its app is stopped.
+        tasks.forEach { task ->
+            transactInt(ClusterDaemon.TXN_SET_TASK_MODE) {
+                writeInt(task)
+                writeInt(WINDOWING_MODE_FULLSCREEN)
+            }
+        }
+        packages.filter { it != context.packageName }
+            .forEach { shell(context, "am force-stop ${ClusterDaemon.quote(it)}") }
         stacks.forEach { shell(context, "am stack remove $it") }
-        if (stacks.isNotEmpty()) SystemClock.sleep(500)
+        if (stacks.isNotEmpty() || packages.isNotEmpty()) SystemClock.sleep(500)
     }
+
+    /** The bounds `am stack list` reports for a task, or null. */
+    internal fun taskBounds(stackList: String, taskId: Int): Rect? =
+        Regex("taskId=$taskId: [^ ]+ bounds=\\[([0-9]+),([0-9]+)\\]\\[([0-9]+),([0-9]+)\\]")
+            .find(stackList)?.groupValues?.let { Rect(it[1].toInt(), it[2].toInt(), it[3].toInt(), it[4].toInt()) }
+
+    /** Whether two rectangles agree to within a few pixels of platform rounding. */
+    private fun close(a: Rect, b: Rect): Boolean =
+        kotlin.math.abs(a.left - b.left) <= 16 && kotlin.math.abs(a.top - b.top) <= 16 &&
+            kotlin.math.abs(a.right - b.right) <= 16 && kotlin.math.abs(a.bottom - b.bottom) <= 16
 
     /** A stack id, task id and display from `am stack list`. */
     internal data class TaskLocation(val stackId: Int, val taskId: Int, val displayId: Int)
@@ -566,32 +607,48 @@ object ClusterProjection {
         val half = bounds.top == 0 && bounds.bottom == CLUSTER_HEIGHT &&
             (bounds.left == 0 || bounds.right == CLUSTER_WIDTH) && bounds.width() < CLUSTER_WIDTH
 
-        if (whole || half) {
-            // A task coming out of a slot keeps the slot's bounds whatever mode it
-            // is given next, so it is started again on the cluster display instead.
-            if (location.displayId != CLUSTER_DISPLAY_ID) {
-                launch(context, component)
-                detachSlot()
-                return applyPlacement(context)
-            }
+        // A task coming out of a slot keeps the slot's bounds whatever mode it
+        // is given next, so it is started again on the cluster display instead.
+        if (location.displayId != CLUSTER_DISPLAY_ID) {
+            launch(context, component)
             detachSlot()
-            if (whole) {
-                val switched = transactInt(ClusterDaemon.TXN_SET_TASK_MODE) {
-                    writeInt(task)
-                    writeInt(WINDOWING_MODE_FULLSCREEN)
-                } == 1
-                Log.i(TAG, "task $task placement full: $switched")
+            return applyPlacement(context)
+        }
+        detachSlot()
+        if (whole) {
+            val switched = transactInt(ClusterDaemon.TXN_SET_TASK_MODE) {
+                writeInt(task)
+                writeInt(WINDOWING_MODE_FULLSCREEN)
+            } == 1
+            Log.i(TAG, "task $task placement full: $switched")
+            return
+        }
+        // Docked first: no caption, and stays on the cluster display, which any
+        // app's own activities may use. Docking snaps to a half; the divider's
+        // resize call then moves it to the exact rectangle.
+        clearCluster(context, except = location.stackId)
+        val docked = transactInt(ClusterDaemon.TXN_SET_TASK_SPLIT) {
+            writeInt(task)
+            writeInt(bounds.left); writeInt(bounds.top); writeInt(bounds.right); writeInt(bounds.bottom)
+        } == 1
+        if (docked) {
+            if (half) {
+                Log.i(TAG, "task $task placement $bounds: docked")
                 return
             }
-            // An empty docked stack left from before would refuse a second one.
-            clearCluster(context, except = location.stackId)
-            val docked = transactInt(ClusterDaemon.TXN_SET_TASK_SPLIT) {
-                writeInt(task)
+            val resized = transactInt(ClusterDaemon.TXN_RESIZE_DOCKED) {
                 writeInt(bounds.left); writeInt(bounds.top); writeInt(bounds.right); writeInt(bounds.bottom)
             } == 1
-            Log.i(TAG, "task $task placement $bounds: docked=$docked")
-            if (docked) return
-        } else {
+            SystemClock.sleep(300)
+            val landed = findTask(AdbLink.shell(context, "am stack list"), component.packageName)
+                ?.let { taskBounds(AdbLink.shell(context, "am stack list"), it.taskId) }
+            Log.i(TAG, "task $task placement $bounds: docked, resized=$resized, now $landed")
+            if (resized && landed != null && close(landed, bounds)) return
+        }
+        // A slot: the helper's window with its own display. Only apps whose every
+        // activity is started by a privileged caller may land there - an app that
+        // starts a second activity of its own is refused by the platform.
+        run {
             // Lets the helper's fallback overlay type show, should the presentation
             // window be refused; harmless where the op is already allowed or unknown.
             runCatching { shell(context, "appops set --uid 2000 SYSTEM_ALERT_WINDOW allow") }

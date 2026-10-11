@@ -63,7 +63,7 @@ object ClusterDaemon {
     private const val APP_PACKAGE = "com.example.esmerui"
 
     /** Bumped whenever the wire contract below changes; a running daemon reports its own. */
-    const val PROTOCOL = 8
+    const val PROTOCOL = 9
 
     const val TXN_PING = 1
     const val TXN_MIRROR_START = 2
@@ -91,6 +91,8 @@ object ClusterDaemon {
     const val TXN_MOVE_STACK = 14
     /** Debug: writes what the cluster's layer stack shows to [CAPTURE_PATH]; replies 1 on success. */
     const val TXN_CAPTURE = 15
+    /** Resizes the docked stack to arbitrary bounds, the way the split-screen divider does. */
+    const val TXN_RESIZE_DOCKED = 16
     const val CAPTURE_PATH = "/data/local/tmp/esmerui_cluster.png"
 
     /** How long the daemon keeps re-announcing its binder for an app that started late. */
@@ -262,6 +264,13 @@ object ClusterDaemon {
                     val stackId = data.readInt()
                     val display = data.readInt()
                     val ok = Tasks.moveStack(stackId, display)
+                    reply?.writeNoException()
+                    reply?.writeInt(if (ok) 1 else 0)
+                    return true
+                }
+                TXN_RESIZE_DOCKED -> {
+                    val bounds = Rect(data.readInt(), data.readInt(), data.readInt(), data.readInt())
+                    val ok = Tasks.resizeDocked(bounds)
                     reply?.writeNoException()
                     reply?.writeInt(if (ok) 1 else 0)
                     return true
@@ -529,6 +538,18 @@ object ClusterDaemon {
                 log("stale docked stack $stale adopted by task $taskId and dissolved: ${dockedStackOn(1) == null}")
             }.onFailure { log("undock via stack $stale failed: ${it.cause ?: it}") }
         }
+
+        /**
+         * The docked stack's bounds, set the way SystemUI's divider sets them: not
+         * snapped to a half, so a docked window can sit anywhere on the cluster.
+         */
+        fun resizeDocked(bounds: Rect): Boolean = runCatching {
+            service().javaClass.getMethod(
+                "resizeDockedStack", Rect::class.java, Rect::class.java, Rect::class.java, Rect::class.java, Rect::class.java,
+            ).invoke(service(), bounds, null, null, null, null)
+            log("docked stack -> $bounds")
+            true
+        }.onFailure { log("docked stack $bounds failed: ${it.cause ?: it}") }.getOrDefault(false)
 
         /** Moves a stack to another display; the ROM's `moveStackToDisplay` (Android 10). */
         fun moveStack(stackId: Int, displayId: Int): Boolean = runCatching {
