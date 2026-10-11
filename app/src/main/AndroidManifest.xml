@@ -19,6 +19,15 @@
         android:name="android.permission.BLUETOOTH"
         android:maxSdkVersion="30" />
 
+    <!--
+      The cluster projection's shell-side helper hands its binder to the app in a
+      broadcast; this signature permission keeps anyone else from receiving it.
+    -->
+    <permission
+        android:name="com.example.esmerui.permission.CLUSTER_DAEMON"
+        android:protectionLevel="signature" />
+    <uses-permission android:name="com.example.esmerui.permission.CLUSTER_DAEMON" />
+
     <!-- Overlay window for the custom navigation bar. -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />

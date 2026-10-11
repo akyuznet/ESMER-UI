@@ -109,6 +109,9 @@ class LauncherSettings private constructor(context: Context) {
     private var windowModeState by mutableStateOf(
         WindowMode.from(prefs.getString(KEY_WINDOW_MODE, null))
     )
+    private var clusterComponentState by mutableStateOf(
+        prefs.getString(KEY_CLUSTER_COMPONENT, null)
+    )
     private var windowWidthState by mutableIntStateOf(
         prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH).coerceIn(WINDOW_SIZE_RANGE)
     )
@@ -136,6 +139,14 @@ class LauncherSettings private constructor(context: Context) {
         set(value) {
             windowComponentState = value
             prefs.edit().putString(KEY_WINDOW_COMPONENT, value).apply()
+        }
+
+    /** Flattened ComponentName of the app last projected to the cluster, or null. */
+    var clusterComponent: String?
+        get() = clusterComponentState
+        set(value) {
+            clusterComponentState = value
+            prefs.edit().putString(KEY_CLUSTER_COMPONENT, value).apply()
         }
 
     /** Which windowing technique to use. */
@@ -384,6 +395,7 @@ class LauncherSettings private constructor(context: Context) {
         windowEnabledState = prefs.getBoolean(KEY_WINDOW_ENABLED, false)
         windowComponentState = prefs.getString(KEY_WINDOW_COMPONENT, null)
         windowModeState = WindowMode.from(prefs.getString(KEY_WINDOW_MODE, null))
+        clusterComponentState = prefs.getString(KEY_CLUSTER_COMPONENT, null)
         windowWidthState = prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH)
             .coerceIn(WINDOW_SIZE_RANGE)
         windowHeightState = prefs.getInt(KEY_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT)
@@ -425,6 +437,7 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_WINDOW_ENABLED = "window_enabled"
         private const val KEY_WINDOW_COMPONENT = "window_component"
         private const val KEY_WINDOW_MODE = "window_mode"
+        private const val KEY_CLUSTER_COMPONENT = "cluster_component"
         private const val KEY_WINDOW_WIDTH = "window_width_pct"
         private const val KEY_WINDOW_HEIGHT = "window_height_pct"
         private const val KEY_WINDOW_X = "window_x_pct"

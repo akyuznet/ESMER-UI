@@ -216,6 +216,8 @@ fun SettingsScreen(
 
                 SettingsTab.WINDOWS -> WindowSettingsCard(settings = settings, apps = apps)
 
+                SettingsTab.CLUSTER -> ClusterSettingsCard(settings = settings, apps = apps)
+
                 SettingsTab.SYSTEM -> {
                     DefaultLauncherCard(settings = settings)
                     BackupCard(settings = settings)
@@ -240,6 +242,7 @@ private enum class SettingsTab(val label: String) {
     HOME("Home"),
     BARS("Bars"),
     WINDOWS("Windows"),
+    CLUSTER("Cluster"),
     SYSTEM("System"),
 }
 
@@ -1187,7 +1190,7 @@ private fun WindowSettingsCard(settings: LauncherSettings, apps: List<AppEntry>)
 }
 
 @Composable
-private fun AppPickerDialog(
+internal fun AppPickerDialog(
     apps: List<AppEntry>,
     onPick: (AppEntry) -> Unit,
     onDismiss: () -> Unit,
@@ -1271,7 +1274,7 @@ private fun AppPickerDialog(
 }
 
 @Composable
-private fun SettingsCard(title: String, content: @Composable () -> Unit) {
+internal fun SettingsCard(title: String, content: @Composable () -> Unit) {
     Card(
         modifier = Modifier
             .fillMaxWidth()

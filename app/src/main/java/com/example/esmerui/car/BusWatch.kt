@@ -102,6 +102,15 @@ object BusWatch : BroadcastReceiver() {
      */
     private const val ACTION_POWER = "com.example.esmerui.POWER"
 
+    /**
+     * Drives the cluster projection from adb, debug builds only:
+     *
+     *     adb shell am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui \n     *         --es component com.waze/.MainActivity
+     *     adb shell am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui --ez stop true
+     *     adb shell am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui --ez connect true
+     */
+    private const val ACTION_PROJECT = "com.example.esmerui.PROJECT"
+
     private const val MAX_HZ = 20
     private const val MAX_SECONDS = 600
     private const val HEARTBEAT_MS = 1_000L
@@ -118,6 +127,7 @@ object BusWatch : BroadcastReceiver() {
             addAction(ACTION_PRESENT)
             addAction(ACTION_REPAIR)
             addAction(ACTION_POWER)
+            addAction(ACTION_PROJECT)
         })
     }
 
@@ -130,6 +140,22 @@ object BusWatch : BroadcastReceiver() {
     }
 
     override fun onReceive(context: Context, intent: Intent) {
+        if (intent.action == ACTION_PROJECT) {
+            if (!debuggable(context)) return
+            val projection = com.example.esmerui.cluster.ClusterProjection
+            when {
+                intent.getBooleanExtra("stop", false) -> projection.stop(context)
+                intent.getBooleanExtra("connect", false) -> projection.connect(context)
+                else -> {
+                    val component = intent.getStringExtra("component")
+                        ?.let { android.content.ComponentName.unflattenFromString(it) }
+                    if (component == null) Log.w(TAG, "project: needs component, stop or connect")
+                    else projection.start(context, component)
+                }
+            }
+            return
+        }
+
         if (intent.action == ACTION_POWER) {
             if (!debuggable(context)) return
             val level = intent.getIntExtra("level", -1)

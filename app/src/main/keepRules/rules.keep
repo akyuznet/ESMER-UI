@@ -8,3 +8,12 @@
 # nothing here needs keeping by hand.
 -dontobfuscate
 -keepattributes SourceFile,LineNumberTable
+
+# The cluster projection's helper runs under app_process with this APK on its
+# classpath; nothing in the app references its main(), so R8 must be told.
+-keep class com.example.esmerui.cluster.ClusterDaemon {
+    public static void main(java.lang.String[]);
+}
+# dadb's okio pulls in annotations that are not on Android.
+-dontwarn org.codehaus.mojo.animal_sniffer.**
+-dontwarn okio.**

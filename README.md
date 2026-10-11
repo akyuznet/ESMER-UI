@@ -82,6 +82,26 @@ cellular and Bluetooth strength.
 Values are read from BYD's automotive bus directly — no dependency on any other
 app being installed or running.
 
+**Projection to the cluster**
+
+The Cluster tab casts any app onto the instrument cluster behind the wheel and shows
+a live mirror of it on the head unit, which you tap and swipe to drive the app. Pick
+the app, press `Project to cluster`; `Stop` hands the dial back to the car.
+
+On this unit the cluster is a second OS on the same chip, and the head unit publishes
+its projected layer as a 1920×720 display that only an allowlisted caller may switch
+the dial over to. The launcher therefore talks to the unit's own wireless ADB on
+`127.0.0.1:5555` with a key of its own, sends the container the projection codes from
+there, launches the app on that display, and starts a small shell-level helper
+(`app_process`, uid 2000) that mirrors the display into the preview and injects the
+preview's touches back. The first time, the unit asks *Allow USB debugging?* — tap
+Allow with *Always allow from this computer* ticked. The sequence of container
+codes is the one [BYD-DashCast](https://github.com/Kiroha/byd-dashcast) worked out
+(MIT); the implementation here is the launcher's own.
+
+Apps that mark their window secure (Chrome's incognito tabs, DRM video) render black
+on the mirror, as on any screen capture.
+
 ---
 
 ## How the car is read
@@ -184,6 +204,11 @@ appears on the home screen.
 - Overscan (`IWindowManager.setOverscan`, reflected) is used to reserve the screen
   edges so other apps do not draw under the bars. That API exists on Android 10 only.
 - Idle cost on the unit is roughly 1% of one core and ~50 MB PSS.
+- Cluster projection needs the unit's ADB over TCP, which DiLink 3 keeps enabled
+  (`persist.sys.adb.wiress.enable`). The helper's log is
+  `/data/local/tmp/esmerui_cluster.log`; debug builds take
+  `am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui --es component <pkg/.Activity>`
+  (or `--ez stop true`) to drive it from adb.
 
 ## Community
 
