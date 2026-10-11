@@ -125,6 +125,13 @@ object ClusterProjection {
 
     /** The task on the cluster, once launched; what placements and bounds apply to. */
     private var taskId: Int? = null
+
+    /**
+     * A slot in use: the helper's virtual display and where its window sits on
+     * the cluster. Touches inside those bounds go to that display instead.
+     */
+    @Volatile private var slotDisplay = -1
+    @Volatile private var slotBounds: Rect? = null
     private var layerStackCached = CLUSTER_DISPLAY_ID
 
     /**
@@ -172,17 +179,11 @@ object ClusterProjection {
                 }
                 publish(Phase.BUSY, "Starting ${component.packageName} on the cluster…")
                 claimDisplay()
-                shell(app, "am force-stop ${ClusterDaemon.quote(component.packageName)}")
-                val launched = shell(
-                    app,
-                    "am start --display $CLUSTER_DISPLAY_ID -n " +
-                        ClusterDaemon.quote(component.flattenToString()),
-                )
-                if (launched.contains("Error", ignoreCase = true)) error(launched.trim())
-                taskId = awaitTask(app, component.packageName)
+                clearCluster(app)
+                launch(app, component)
+                projected = component
                 applyPlacement(app)
                 layerStackCached = layerStack(app)
-                main.post { projected = component }
                 publish(Phase.PROJECTING, "Projecting to the cluster.")
                 refreshMirrors()
             }.onFailure {
@@ -207,6 +208,8 @@ object ClusterProjection {
             val current = projected
             runCatching {
                 if (current != null) shell(app, "am force-stop ${ClusterDaemon.quote(current.packageName)}")
+                detachSlot()
+                clearCluster(app)
                 releaseDisplay()
                 sendCode(app, CODE_PROJECTION_OFF)
                 SystemClock.sleep(CODE_SETTLE_MS / 3)
@@ -287,6 +290,7 @@ object ClusterProjection {
         if (current == Phase.IDLE) return
         worker.post {
             runCatching { releaseDisplay() }
+            runCatching { detachSlot() }
             stopMirror(SLOT_PREVIEW)
             stopMirror(SLOT_FLOAT)
             taskId = null
@@ -326,10 +330,17 @@ object ClusterProjection {
         val copy = MotionEvent.obtain(event)
         copy.transform(ClusterGeometry.viewToCluster(source, target))
         copy.source = InputDevice.SOURCE_TOUCHSCREEN
+        // A finger inside the slot belongs to the slot's own display, offset to it.
+        var display = CLUSTER_DISPLAY_ID
+        val slot = slotBounds
+        if (slot != null && slotDisplay >= 0 && slot.contains(copy.x.toInt(), copy.y.toInt())) {
+            copy.offsetLocation(-slot.left.toFloat(), -slot.top.toFloat())
+            display = slotDisplay
+        }
         val data = Parcel.obtain()
         return try {
             data.writeInterfaceToken(ClusterDaemon.DESCRIPTOR)
-            data.writeInt(CLUSTER_DISPLAY_ID)
+            data.writeInt(display)
             copy.writeToParcel(data, 0)
             binder.transact(ClusterDaemon.TXN_INJECT_MOTION, data, null, IBinder.FLAG_ONEWAY)
         } catch (e: Exception) {
@@ -448,11 +459,38 @@ object ClusterProjection {
         return ok
     }
 
+    /** Stops the app and starts it fresh on the cluster display, then waits for its task. */
+    private fun launch(context: Context, component: ComponentName) {
+        shell(context, "am force-stop ${ClusterDaemon.quote(component.packageName)}")
+        val launched = shell(
+            context,
+            "am start --display $CLUSTER_DISPLAY_ID -n " + ClusterDaemon.quote(component.flattenToString()),
+        )
+        if (launched.contains("Error", ignoreCase = true)) error(launched.trim())
+        taskId = awaitTask(context, component.packageName)
+    }
+
+    /** Debug: asks the helper for a still of the cluster; true when the file was written. */
+    fun capture(context: Context): Boolean {
+        val app = context.applicationContext
+        var ok = false
+        val done = java.util.concurrent.CountDownLatch(1)
+        worker.post {
+            ok = runCatching {
+                ensureDaemon(app)
+                transactInt(ClusterDaemon.TXN_CAPTURE) { writeInt(layerStackCached) } == 1
+            }.getOrDefault(false)
+            done.countDown()
+        }
+        done.await(15, java.util.concurrent.TimeUnit.SECONDS)
+        return ok
+    }
+
     /** Waits for the launched task to show up on the cluster display. */
     private fun awaitTask(context: Context, packageName: String): Int? {
         val until = SystemClock.elapsedRealtime() + TASK_WAIT_MS
         while (SystemClock.elapsedRealtime() < until) {
-            clusterTask(AdbLink.shell(context, "am stack list"), packageName)?.let { return it }
+            findTask(AdbLink.shell(context, "am stack list"), packageName)?.let { return it.taskId }
             SystemClock.sleep(250)
         }
         Log.w(TAG, "no task for $packageName on display $CLUSTER_DISPLAY_ID yet")
@@ -460,31 +498,129 @@ object ClusterProjection {
     }
 
     /**
-     * Sizes the cast window to the placement in settings. The whole cluster is a
-     * fullscreen task; anything smaller is a freeform task with explicit bounds,
-     * which this ROM accepts once the task is freeform (fullscreen refuses).
+     * Removes every stack on the cluster display. A window left there by an
+     * earlier session would sit over or under the new one, and a stale docked
+     * stack stops a fresh one from docking at all.
+     */
+    private fun clearCluster(context: Context, except: Int? = null) {
+        val listing = AdbLink.shell(context, "am stack list")
+        val stacks = Regex("Stack id=([0-9]+) [^\n]*displayId=$CLUSTER_DISPLAY_ID\b")
+            .findAll(listing)
+            .map { it.groupValues[1].toInt() }
+            .filter { it != except }
+            .toList()
+        stacks.forEach { shell(context, "am stack remove $it") }
+        if (stacks.isNotEmpty()) SystemClock.sleep(500)
+    }
+
+    /** A stack id, task id and display from `am stack list`. */
+    internal data class TaskLocation(val stackId: Int, val taskId: Int, val displayId: Int)
+
+    /**
+     * Where [packageName]'s task is, from `am stack list`: a `Stack id=…
+     * displayId=N` line heads each stack, and its tasks follow as
+     * `taskId=N: pkg/activity …` lines. The main screen is only reported when
+     * nothing else has it, since a cast app may be open there too.
+     */
+    internal fun findTask(stackList: String, packageName: String): TaskLocation? {
+        var stackId = -1
+        var displayId = -1
+        var onMain: TaskLocation? = null
+        for (line in stackList.lineSequence()) {
+            val trimmed = line.trim()
+            if (trimmed.startsWith("Stack id=")) {
+                stackId = Regex("Stack id=([0-9]+)").find(trimmed)?.groupValues?.get(1)?.toInt() ?: -1
+                displayId = Regex("displayId=([0-9]+)").find(trimmed)?.groupValues?.get(1)?.toInt() ?: -1
+                continue
+            }
+            val match = Regex("^taskId=([0-9]+): ([^/ ]+)/").find(trimmed) ?: continue
+            if (match.groupValues[2] != packageName) continue
+            val found = TaskLocation(stackId, match.groupValues[1].toInt(), displayId)
+            if (displayId == 0) onMain = onMain ?: found else return found
+        }
+        return onMain
+    }
+
+    /**
+     * Sizes the cast window to the placement in settings. Three ways, none of
+     * which draws the ROM's freeform caption bar:
+     *  - the whole cluster: a fullscreen task on the cluster display;
+     *  - a left or right half: the task docked as split-screen primary, which
+     *    this ROM anchors to that edge;
+     *  - anything else: a slot - the helper's window at those bounds hosting a
+     *    virtual display, with the task moved onto it and fullscreen there.
+     * Freeform with explicit bounds remains the last resort, caption and all.
      * Worker thread only.
      */
     private fun applyPlacement(context: Context) {
-        val task = taskId ?: return
-        val bounds = currentBounds(context)
-        val whole = bounds == ClusterGeometry.full
-        if (whole) {
-            val switched = transactInt(ClusterDaemon.TXN_SET_TASK_MODE) {
-                writeInt(task)
-                writeInt(WINDOWING_MODE_FULLSCREEN)
-            } == 1
-            Log.i(TAG, "task $task placement full: $switched")
+        val component = projected ?: return
+        val location = findTask(AdbLink.shell(context, "am stack list"), component.packageName)
+        if (location == null) {
+            Log.w(TAG, "placement: no task for ${component.packageName}")
             return
         }
-        // Docked first: it has no caption. Freeform is the fallback, caption and all.
-        val docked = transactInt(ClusterDaemon.TXN_SET_TASK_SPLIT) {
-            writeInt(task)
-            writeInt(bounds.left); writeInt(bounds.top); writeInt(bounds.right); writeInt(bounds.bottom)
-        } == 1
-        if (docked) {
-            Log.i(TAG, "task $task placement $bounds: docked")
-            return
+        val task = location.taskId
+        taskId = task
+        val bounds = currentBounds(context)
+        val whole = bounds == ClusterGeometry.full
+        val half = bounds.top == 0 && bounds.bottom == CLUSTER_HEIGHT &&
+            (bounds.left == 0 || bounds.right == CLUSTER_WIDTH) && bounds.width() < CLUSTER_WIDTH
+
+        if (whole || half) {
+            // A task coming out of a slot keeps the slot's bounds whatever mode it
+            // is given next, so it is started again on the cluster display instead.
+            if (location.displayId != CLUSTER_DISPLAY_ID) {
+                launch(context, component)
+                detachSlot()
+                return applyPlacement(context)
+            }
+            detachSlot()
+            if (whole) {
+                val switched = transactInt(ClusterDaemon.TXN_SET_TASK_MODE) {
+                    writeInt(task)
+                    writeInt(WINDOWING_MODE_FULLSCREEN)
+                } == 1
+                Log.i(TAG, "task $task placement full: $switched")
+                return
+            }
+            // An empty docked stack left from before would refuse a second one.
+            clearCluster(context, except = location.stackId)
+            val docked = transactInt(ClusterDaemon.TXN_SET_TASK_SPLIT) {
+                writeInt(task)
+                writeInt(bounds.left); writeInt(bounds.top); writeInt(bounds.right); writeInt(bounds.bottom)
+            } == 1
+            Log.i(TAG, "task $task placement $bounds: docked=$docked")
+            if (docked) return
+        } else {
+            // Lets the helper's fallback overlay type show, should the presentation
+            // window be refused; harmless where the op is already allowed or unknown.
+            runCatching { shell(context, "appops set --uid 2000 SYSTEM_ALERT_WINDOW allow") }
+            val display = transactInt(ClusterDaemon.TXN_SLOT_ATTACH) {
+                writeInt(bounds.left); writeInt(bounds.top); writeInt(bounds.right); writeInt(bounds.bottom)
+            } ?: -1
+            if (display >= 0) {
+                val moved = transactInt(ClusterDaemon.TXN_MOVE_STACK) {
+                    writeInt(location.stackId)
+                    writeInt(display)
+                } == 1
+                val fullscreen = transactInt(ClusterDaemon.TXN_SET_TASK_MODE) {
+                    writeInt(task)
+                    writeInt(WINDOWING_MODE_FULLSCREEN)
+                } == 1
+                slotDisplay = display
+                slotBounds = Rect(bounds)
+                Log.i(TAG, "task $task placement $bounds: slot display $display moved=$moved fullscreen=$fullscreen")
+                if (moved) return
+                detachSlot()
+            }
+        }
+
+        // Last resort: freeform with explicit bounds, caption and all.
+        if (location.displayId != CLUSTER_DISPLAY_ID) {
+            transactInt(ClusterDaemon.TXN_MOVE_STACK) {
+                writeInt(location.stackId)
+                writeInt(CLUSTER_DISPLAY_ID)
+            }
         }
         val switched = transactInt(ClusterDaemon.TXN_SET_TASK_MODE) {
             writeInt(task)
@@ -497,25 +633,12 @@ object ClusterProjection {
         Log.i(TAG, "task $task placement $bounds: freeform=$switched bounds=$sized")
     }
 
-    /**
-     * The id of [packageName]'s task on the cluster display, from `am stack list`:
-     * a `Stack id=… displayId=N` line heads each stack, and its tasks follow as
-     * `taskId=N: pkg/activity …` lines.
-     */
-    internal fun clusterTask(stackList: String, packageName: String): Int? {
-        var onCluster = false
-        for (line in stackList.lineSequence()) {
-            val trimmed = line.trim()
-            if (trimmed.startsWith("Stack id=")) {
-                onCluster = Regex("displayId=([0-9]+)").find(trimmed)?.groupValues?.get(1) ==
-                    CLUSTER_DISPLAY_ID.toString()
-                continue
-            }
-            if (!onCluster) continue
-            val match = Regex("^taskId=([0-9]+): ([^/ ]+)/").find(trimmed) ?: continue
-            if (match.groupValues[2] == packageName) return match.groupValues[1].toInt()
-        }
-        return null
+    /** Worker thread only. Releases the slot, if any; the task must be elsewhere or stopped first. */
+    private fun detachSlot() {
+        if (slotDisplay < 0 && slotBounds == null) return
+        slotDisplay = -1
+        slotBounds = null
+        transactInt(ClusterDaemon.TXN_SLOT_DETACH) {}
     }
 
     /** The cluster display's layer stack: what the mirror must composite. */
@@ -533,30 +656,29 @@ object ClusterProjection {
      * broadcast fills [daemon] instead.
      */
     private fun ensureDaemon(context: Context) {
-        daemon?.let { if (it.isBinderAlive && ping(it) == ClusterDaemon.PROTOCOL) return }
+        val apk = context.applicationInfo.sourceDir
+        daemon?.let { if (it.isBinderAlive && current(it, apk)) return }
         daemon = null
         AdbLink.connect(context)
         listenForDaemon(context)
 
         lookup()?.let { found ->
-            val protocol = ping(found)
-            if (protocol == ClusterDaemon.PROTOCOL) {
+            if (current(found, apk)) {
                 daemon = found
                 main.post { linkReady = true }
                 return
             }
-            Log.i(TAG, "daemon speaks protocol $protocol, want ${ClusterDaemon.PROTOCOL}; restarting it")
+            Log.i(TAG, "daemon is stale (protocol or APK); restarting it")
         }
         // Any daemon still around is stale or unreachable; replace it.
         shell(context, "for p in \$(pidof ${ClusterDaemon.PROCESS_NAME}); do kill \$p; done; true")
-        val apk = context.applicationInfo.sourceDir
         val started = shell(context, ClusterDaemon.startCommand(apk))
         if (!started.contains("STARTED")) error("Could not start the cluster helper: ${started.trim()}")
 
         val until = SystemClock.elapsedRealtime() + DAEMON_WAIT_MS
         while (SystemClock.elapsedRealtime() < until) {
             val found = daemon ?: lookup()
-            if (found != null && ping(found) == ClusterDaemon.PROTOCOL) {
+            if (found != null && current(found, apk)) {
                 daemon = found
                 main.post { linkReady = true }
                 return
@@ -574,7 +696,25 @@ object ClusterProjection {
             .invoke(null, ClusterDaemon.SERVICE_NAME) as? IBinder
     }.getOrNull()
 
-    private fun ping(binder: IBinder): Int? = transactInt(ClusterDaemon.TXN_PING, binder) {}
+    /** Whether a daemon speaks this protocol and was started from this very APK. */
+    private fun current(binder: IBinder, apk: String): Boolean {
+        val data = Parcel.obtain()
+        val reply = Parcel.obtain()
+        return try {
+            data.writeInterfaceToken(ClusterDaemon.DESCRIPTOR)
+            if (!binder.transact(ClusterDaemon.TXN_PING, data, reply, 0)) return false
+            reply.readException()
+            val protocol = reply.readInt()
+            reply.readInt()
+            val classpath = runCatching { reply.readString() }.getOrNull()
+            protocol == ClusterDaemon.PROTOCOL && classpath == apk
+        } catch (e: Exception) {
+            false
+        } finally {
+            reply.recycle()
+            data.recycle()
+        }
+    }
 
     /**
      * One request to the daemon with an int reply, or null when it could not be

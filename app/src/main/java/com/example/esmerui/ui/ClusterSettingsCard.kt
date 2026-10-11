@@ -361,7 +361,9 @@ private fun ClusterPreview(modifier: Modifier = Modifier, touchable: Boolean) {
         modifier = modifier,
         factory = { ctx ->
             TextureView(ctx).apply {
-                isOpaque = true
+                // Blended over the black box behind it: the mirror leaves empty
+                // parts of the cluster transparent.
+                isOpaque = false
                 surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                     private var surface: Surface? = null
 

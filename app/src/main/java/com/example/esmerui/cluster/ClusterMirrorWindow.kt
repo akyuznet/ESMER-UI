@@ -76,10 +76,17 @@ object ClusterMirrorWindow {
 
         val remembered = LauncherSettings.get(app).clusterFloatRect
             ?.split(',')?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.size == 4 }
-        val width = remembered?.get(2) ?: (screen.widthPixels * DEFAULT_WIDTH_FRACTION).roundToInt()
-        val height = remembered?.get(3) ?: (heightFor(width, handlePx))
-        val x = remembered?.get(0) ?: (screen.widthPixels - width - (16 * density).roundToInt())
-        val y = remembered?.get(1) ?: (screen.heightPixels - height - (120 * density).roundToInt())
+        // Kept clear of the edges, where the launcher's own bars would cover the
+        // grip and the buttons: a remembered place is clamped the same way.
+        val margin = (100 * density).roundToInt()
+        val maxWidth = screen.widthPixels - 2 * margin
+        val width = (remembered?.get(2) ?: (screen.widthPixels * DEFAULT_WIDTH_FRACTION).roundToInt())
+            .coerceIn((MIN_WIDTH_DP * density).roundToInt(), maxWidth)
+        val height = heightFor(width, handlePx)
+        val x = (remembered?.get(0) ?: ((screen.widthPixels - width) / 2))
+            .coerceIn(margin, (screen.widthPixels - margin - width).coerceAtLeast(margin))
+        val y = (remembered?.get(1) ?: (screen.heightPixels - height - margin))
+            .coerceIn(margin, (screen.heightPixels - margin - height).coerceAtLeast(margin))
 
         val layout = WindowManager.LayoutParams(
             width, height,
@@ -104,8 +111,10 @@ object ClusterMirrorWindow {
         }
 
         // The mirror itself, below the handle bar.
+        // Not opaque: the mirror writes transparent pixels wherever the cluster's
+        // layer stack has nothing, and those should read as black, not as a hole.
         val texture = TextureView(app).apply {
-            isOpaque = true
+            isOpaque = false
             surfaceTextureListener = object : TextureView.SurfaceTextureListener {
                 override fun onSurfaceTextureAvailable(texture: SurfaceTexture, w: Int, h: Int) {
                     surface = Surface(texture).also {

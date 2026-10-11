@@ -94,7 +94,9 @@ the app, press `Project to cluster`; `Stop` hands the dial back to the car.
   cluster app; its place and size are remembered.
 - **Cluster window** — Full, Left half, Right half, Center, or `Resize` to drag a frame
   on the preview to any size and position; `Keep cluster aspect` locks the frame to
-  the dial's 8:3 shape.
+  the dial's 8:3 shape. The halves are docked windows and anything else is a slot (a
+  window of that size on the cluster carrying its own small display), so none of them
+  shows the ROM's freeform caption bar.
 - **Mirror scaling** — Fit, Stretch or Zoom for how the 1920×720 image fills the
   preview and the floating window.
 - **Auto-start on power-on** — casts the last-used app again each time the car powers
@@ -220,7 +222,8 @@ appears on the home screen.
   (`persist.sys.adb.wiress.enable`). The helper's log is
   `/data/local/tmp/esmerui_cluster.log`; debug builds take
   `am broadcast -a com.example.esmerui.PROJECT -p com.example.esmerui --es component <pkg/.Activity>`
-  (or `--ez stop true`) to drive it from adb.
+  (or `--ez stop true`, `--es placement LEFT_HALF`, `--es scaling ZOOM`, `--ez float true`,
+  `--ez capture true` for a PNG of the cluster in `/data/local/tmp`) to drive it from adb.
 
 ## Community
 

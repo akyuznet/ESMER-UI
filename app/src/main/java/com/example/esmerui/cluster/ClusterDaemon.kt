@@ -2,7 +2,11 @@ package com.example.esmerui.cluster
 
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.PixelFormat
 import android.graphics.Rect
+import android.hardware.display.DisplayManager
+import android.hardware.display.VirtualDisplay
 import android.os.Binder
 import android.os.Bundle
 import android.os.Handler
@@ -15,9 +19,16 @@ import android.view.InputEvent
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.Surface
+import android.view.Gravity
 import android.view.SurfaceControl
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.view.WindowManager
 import com.example.esmerui.launcher.window.HiddenApi
+import java.io.FileOutputStream
 import java.lang.reflect.Method
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * The launcher's shell-side helper for the cluster: a small process that
@@ -52,7 +63,7 @@ object ClusterDaemon {
     private const val APP_PACKAGE = "com.example.esmerui"
 
     /** Bumped whenever the wire contract below changes; a running daemon reports its own. */
-    const val PROTOCOL = 5
+    const val PROTOCOL = 8
 
     const val TXN_PING = 1
     const val TXN_MIRROR_START = 2
@@ -69,6 +80,18 @@ object ClusterDaemon {
     const val TXN_SET_TASK_BOUNDS = 10
     /** Docks a task as split-screen primary at given bounds: a sized window with no caption. */
     const val TXN_SET_TASK_SPLIT = 11
+    /**
+     * A slot: a window at given bounds on the cluster display hosting a virtual
+     * display of that size, for a cast window that is neither the whole dial nor
+     * a docked half. Replies with the virtual display's id.
+     */
+    const val TXN_SLOT_ATTACH = 12
+    const val TXN_SLOT_DETACH = 13
+    /** Moves a stack between displays (needs MANAGE_ACTIVITY_STACKS). */
+    const val TXN_MOVE_STACK = 14
+    /** Debug: writes what the cluster's layer stack shows to [CAPTURE_PATH]; replies 1 on success. */
+    const val TXN_CAPTURE = 15
+    const val CAPTURE_PATH = "/data/local/tmp/esmerui_cluster.png"
 
     /** How long the daemon keeps re-announcing its binder for an app that started late. */
     private const val ANNOUNCE_MS = 60_000L
@@ -98,6 +121,9 @@ object ClusterDaemon {
     @Volatile private var appUid = -1
     @Volatile private var pinged = false
 
+    /** The shell package's context: what the display manager wants a virtual display owner to carry. */
+    @Volatile private var shellContext: Context? = null
+
     @JvmStatic
     fun main(args: Array<String>) {
         log("starting uid=${Process.myUid()} pid=${Process.myPid()} protocol=$PROTOCOL")
@@ -112,6 +138,9 @@ object ClusterDaemon {
             log("no system context; giving up")
             return
         }
+        shellContext = runCatching { context.createPackageContext("com.android.shell", 0) }
+            .onFailure { log("shell package context failed: $it") }
+            .getOrNull()
         appUid = runCatching { context.packageManager.getPackageUid(APP_PACKAGE, 0) }
             .onFailure { log("app uid lookup failed: $it") }
             .getOrDefault(-1)
@@ -187,6 +216,9 @@ object ClusterDaemon {
                     reply?.writeNoException()
                     reply?.writeInt(PROTOCOL)
                     reply?.writeInt(Process.myPid())
+                    // The APK this process was started from, so the app can tell a
+                    // helper left over from before an update and replace it.
+                    reply?.writeString(System.getProperty("java.class.path") ?: "")
                     return true
                 }
                 TXN_MIRROR_START -> {
@@ -209,6 +241,34 @@ object ClusterDaemon {
                     val taskId = data.readInt()
                     val bounds = Rect(data.readInt(), data.readInt(), data.readInt(), data.readInt())
                     val ok = Tasks.setBounds(taskId, bounds)
+                    reply?.writeNoException()
+                    reply?.writeInt(if (ok) 1 else 0)
+                    return true
+                }
+                TXN_SLOT_ATTACH -> {
+                    val bounds = Rect(data.readInt(), data.readInt(), data.readInt(), data.readInt())
+                    val display = Slot.attach(bounds)
+                    reply?.writeNoException()
+                    reply?.writeInt(display)
+                    return true
+                }
+                TXN_SLOT_DETACH -> {
+                    Slot.detach()
+                    reply?.writeNoException()
+                    reply?.writeInt(1)
+                    return true
+                }
+                TXN_MOVE_STACK -> {
+                    val stackId = data.readInt()
+                    val display = data.readInt()
+                    val ok = Tasks.moveStack(stackId, display)
+                    reply?.writeNoException()
+                    reply?.writeInt(if (ok) 1 else 0)
+                    return true
+                }
+                TXN_CAPTURE -> {
+                    val layerStack = data.readInt()
+                    val ok = Mirror.capture(layerStack)
                     reply?.writeNoException()
                     reply?.writeInt(if (ok) 1 else 0)
                     return true
@@ -261,6 +321,7 @@ object ClusterDaemon {
                     log("exit requested")
                     Handler(Looper.getMainLooper()).post {
                         Mirror.stopAll()
+                        Slot.detach()
                         Process.killProcess(Process.myPid())
                     }
                     return true
@@ -339,6 +400,70 @@ object ClusterDaemon {
 
         @Synchronized
         fun stopAll() = tokens.keys.toList().forEach { stop(it) }
+
+        /**
+         * A still of the layer stack, through a throwaway display token, written
+         * as a PNG. Debug only: the one way to see the dial from a desk.
+         */
+        @Synchronized
+        fun capture(layerStack: Int): Boolean = runCatching {
+            val surfaceControl = Class.forName("android.view.SurfaceControl")
+            val create = surfaceControl.getDeclaredMethod(
+                "createDisplay", String::class.java, Boolean::class.javaPrimitiveType,
+            ).apply { isAccessible = true }
+            val token = create.invoke(null, "esmerui_cluster_capture", false) as? IBinder
+                ?: error("createDisplay returned null")
+            try {
+                // SurfaceFlinger only knows a display once it has a surface, so the
+                // token gets one (a reader nothing waits on) before the screenshot,
+                // which renders into a second reader at once, dirty or not. An
+                // ImageReader turns the frame into pixels without any GL here.
+                val backing = android.media.ImageReader.newInstance(1920, 720, PixelFormat.RGBA_8888, 2)
+                val transaction = SurfaceControl.Transaction()
+                val type = transaction.javaClass
+                type.getDeclaredMethod(
+                    "setDisplayLayerStack", IBinder::class.java, Int::class.javaPrimitiveType,
+                ).apply { isAccessible = true }.invoke(transaction, token, layerStack)
+                type.getDeclaredMethod(
+                    "setDisplaySurface", IBinder::class.java, Surface::class.java,
+                ).apply { isAccessible = true }.invoke(transaction, token, backing.surface)
+                type.getDeclaredMethod(
+                    "setDisplayProjection",
+                    IBinder::class.java, Int::class.javaPrimitiveType, Rect::class.java, Rect::class.java,
+                ).apply { isAccessible = true }.invoke(transaction, token, 0, Rect(0, 0, 1920, 720), Rect(0, 0, 1920, 720))
+                transaction.apply()
+                transaction.close()
+                Thread.sleep(150)
+                val reader = android.media.ImageReader.newInstance(1920, 720, PixelFormat.RGBA_8888, 2)
+                val shot = surfaceControl.getDeclaredMethod(
+                    "screenshot", IBinder::class.java, Surface::class.java, Rect::class.java,
+                    Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+                    Boolean::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+                ).apply { isAccessible = true }
+                shot.invoke(null, token, reader.surface, Rect(0, 0, 1920, 720), 1920, 720, false, 0)
+                var image: android.media.Image? = null
+                val until = System.currentTimeMillis() + 2_000
+                while (image == null && System.currentTimeMillis() < until) {
+                    image = reader.acquireLatestImage() ?: backing.acquireLatestImage()
+                    if (image == null) Thread.sleep(50)
+                }
+                val frame = image ?: error("no frame from the screenshot")
+                val plane = frame.planes[0]
+                val stride = plane.rowStride / plane.pixelStride
+                val bitmap = Bitmap.createBitmap(stride, frame.height, Bitmap.Config.ARGB_8888)
+                bitmap.copyPixelsFromBuffer(plane.buffer)
+                val cropped = Bitmap.createBitmap(bitmap, 0, 0, frame.width, frame.height)
+                FileOutputStream(CAPTURE_PATH).use { cropped.compress(Bitmap.CompressFormat.PNG, 90, it) }
+                frame.close()
+                reader.close()
+                backing.close()
+                log("captured layer stack $layerStack to $CAPTURE_PATH")
+                true
+            } finally {
+                surfaceControl.getDeclaredMethod("destroyDisplay", IBinder::class.java)
+                    .apply { isAccessible = true }.invoke(null, token)
+            }
+        }.onFailure { log("capture failed: ${Log.getStackTraceString(it)}") }.getOrDefault(false)
     }
 
     // ── Tasks ────────────────────────────────────────────────────────────────
@@ -349,17 +474,73 @@ object ClusterDaemon {
      * task launched there gets a caption bar; fullscreen is what a dial wants.
      */
     private object Tasks {
+        private const val WINDOWING_MODE_FULLSCREEN = 1
+        private const val WINDOWING_MODE_SPLIT_SCREEN_PRIMARY = 3
+
+        private fun service(): Any = Class.forName("android.app.ActivityTaskManager")
+            .getMethod("getService").invoke(null)
+            ?: error("no activity task manager")
+
         fun setWindowingMode(taskId: Int, mode: Int): Boolean = runCatching {
+            if (mode == WINDOWING_MODE_FULLSCREEN) undock(taskId)
+            service().javaClass.getMethod(
+                "setTaskWindowingMode",
+                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
+            ).invoke(service(), taskId, mode, true)
+            log("task $taskId windowing mode -> $mode")
+            true
+        }.onFailure { log("task $taskId windowing mode $mode failed: ${it.cause ?: it}") }
+            .getOrDefault(false)
+
+        /** The docked (split-screen primary) stack on a display, if one exists. */
+        private fun dockedStackOn(displayId: Int): Int? = runCatching {
+            val infos = service().javaClass.getMethod("getAllStackInfos").invoke(service()) as List<*>
+            infos.firstOrNull { info ->
+                info ?: return@firstOrNull false
+                val type = info.javaClass
+                val display = type.getField("displayId").get(info) as Int
+                val configuration = type.getField("configuration").get(info)
+                    ?: return@firstOrNull false
+                // Configuration.windowConfiguration and its getter are hidden.
+                val windowConfiguration = configuration.javaClass.getField("windowConfiguration").get(configuration)
+                    ?: return@firstOrNull false
+                val mode = windowConfiguration.javaClass.getMethod("getWindowingMode").invoke(windowConfiguration) as Int
+                display == displayId && mode == WINDOWING_MODE_SPLIT_SCREEN_PRIMARY
+            }?.let { it.javaClass.getField("stackId").get(it) as Int }
+        }.onFailure { log("stack listing failed: ${it.cause ?: it}") }.getOrNull()
+
+        /**
+         * A docked stack left on the cluster display outlives its last task on this
+         * ROM, and while it exists every other stack there is laid out as the
+         * docked secondary (the right half) and a second docking is refused. Moving
+         * the task into it and switching that to fullscreen dissolves it.
+         */
+        private fun undock(taskId: Int) {
+            val stale = dockedStackOn(1) ?: return
+            runCatching {
+                service().javaClass.getMethod(
+                    "moveTaskToStack",
+                    Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
+                ).invoke(service(), taskId, stale, true)
+                service().javaClass.getMethod(
+                    "setTaskWindowingMode",
+                    Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
+                ).invoke(service(), taskId, WINDOWING_MODE_FULLSCREEN, true)
+                log("stale docked stack $stale adopted by task $taskId and dissolved: ${dockedStackOn(1) == null}")
+            }.onFailure { log("undock via stack $stale failed: ${it.cause ?: it}") }
+        }
+
+        /** Moves a stack to another display; the ROM's `moveStackToDisplay` (Android 10). */
+        fun moveStack(stackId: Int, displayId: Int): Boolean = runCatching {
             val service = Class.forName("android.app.ActivityTaskManager")
                 .getMethod("getService").invoke(null)
                 ?: error("no activity task manager")
             service.javaClass.getMethod(
-                "setTaskWindowingMode",
-                Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
-            ).invoke(service, taskId, mode, true)
-            log("task $taskId windowing mode -> $mode")
+                "moveStackToDisplay", Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+            ).invoke(service, stackId, displayId)
+            log("stack $stackId -> display $displayId")
             true
-        }.onFailure { log("task $taskId windowing mode $mode failed: ${it.cause ?: it}") }
+        }.onFailure { log("stack $stackId -> display $displayId failed: ${it.cause ?: it}") }
             .getOrDefault(false)
 
         /** Freeform tasks only: a fullscreen one refuses, which is why mode comes first. */
@@ -382,9 +563,8 @@ object ClusterDaemon {
          * Signature on Android 10: (taskId, createMode, toTop, animate, initialBounds, showRecents).
          */
         fun setSplitScreen(taskId: Int, bounds: Rect): Boolean = runCatching {
-            val service = Class.forName("android.app.ActivityTaskManager")
-                .getMethod("getService").invoke(null)
-                ?: error("no activity task manager")
+            undock(taskId)
+            val service = service()
             val result = service.javaClass.getMethod(
                 "setTaskWindowingModeSplitScreenPrimary",
                 Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Boolean::class.javaPrimitiveType,
@@ -422,6 +602,140 @@ object ClusterDaemon {
             true
         }.onFailure { log("display $displayId windowing mode $mode failed: ${it.cause ?: it}") }
             .getOrDefault(false)
+    }
+
+    // ── Slot ─────────────────────────────────────────────────────────────────
+
+    /**
+     * A window on the cluster display at chosen bounds, carrying a virtual
+     * display of the same size. A task moved onto that virtual display is
+     * fullscreen there - no caption, no docking rules - and the window shows it
+     * on the dial exactly where the bounds say. DashCast's "fission slot".
+     *
+     * The window is not touchable: the app injects touches straight onto the
+     * virtual display, offset by the slot's position. Views need the main looper,
+     * so the binder thread hands the work over and waits for the surface.
+     */
+    private object Slot {
+        private val main = Handler(Looper.getMainLooper())
+        private var view: SurfaceView? = null
+        private var manager: WindowManager? = null
+        private var display: VirtualDisplay? = null
+
+        @Synchronized
+        fun attach(bounds: Rect): Int {
+            detach()
+            val context = shellContext ?: run {
+                log("slot: no shell context")
+                return -1
+            }
+            val latch = CountDownLatch(1)
+            var result = -1
+            main.post {
+                runCatching {
+                    // DisplayManager from a package context in this process has no
+                    // context behind it (getDisplay and createVirtualDisplay both
+                    // dereference null), so the global is used with ours passed in.
+                    val globalType = Class.forName("android.hardware.display.DisplayManagerGlobal")
+                    val global = globalType.getMethod("getInstance").invoke(null)
+                    val adjustmentsType = Class.forName("android.view.DisplayAdjustments")
+                    val adjustments = adjustmentsType.getField("DEFAULT_DISPLAY_ADJUSTMENTS").get(null)
+                    val cluster = globalType.getMethod(
+                        "getCompatibleDisplay", Int::class.javaPrimitiveType, adjustmentsType,
+                    ).invoke(global, 1, adjustments) as? android.view.Display
+                        ?: error("no cluster display")
+                    val onCluster = context.createDisplayContext(cluster)
+                    val windows = onCluster.getSystemService(WindowManager::class.java)
+                    val surface = SurfaceView(onCluster)
+                    surface.holder.addCallback(object : SurfaceHolder.Callback {
+                        override fun surfaceCreated(holder: SurfaceHolder) {
+                            runCatching {
+                                val virtual = globalType.getMethod(
+                                    "createVirtualDisplay",
+                                    Context::class.java,
+                                    Class.forName("android.media.projection.MediaProjection"),
+                                    String::class.java,
+                                    Int::class.javaPrimitiveType, Int::class.javaPrimitiveType, Int::class.javaPrimitiveType,
+                                    Surface::class.java, Int::class.javaPrimitiveType,
+                                    VirtualDisplay.Callback::class.java, Handler::class.java, String::class.java,
+                                ).invoke(
+                                    global, context, null, "esmerui_cluster_slot",
+                                    bounds.width(), bounds.height(), SLOT_DPI, holder.surface,
+                                    DisplayManager.VIRTUAL_DISPLAY_FLAG_PUBLIC or
+                                        DisplayManager.VIRTUAL_DISPLAY_FLAG_OWN_CONTENT_ONLY,
+                                    null, null, null,
+                                ) as VirtualDisplay
+                                display = virtual
+                                result = virtual.display.displayId
+                                log("slot on: $bounds as display $result")
+                            }.onFailure { log("slot: virtual display failed: ${Log.getStackTraceString(it)}") }
+                            latch.countDown()
+                        }
+
+                        override fun surfaceChanged(holder: SurfaceHolder, format: Int, w: Int, h: Int) = Unit
+                        override fun surfaceDestroyed(holder: SurfaceHolder) = Unit
+                    })
+                    // A presentation window, the kind Presentation itself uses on a
+                    // secondary display. Every alert-window type (application and
+                    // system overlays included) is hidden by the window manager unless
+                    // the draw-over-apps app-op allows the uid, and the shell's does
+                    // not by default; a presentation window is not gated by it.
+                    val params = WindowManager.LayoutParams(
+                        bounds.width(), bounds.height(),
+                        TYPE_PRESENTATION,
+                        WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
+                            WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
+                            WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
+                        PixelFormat.OPAQUE,
+                    ).apply {
+                        gravity = Gravity.TOP or Gravity.START
+                        x = bounds.left
+                        y = bounds.top
+                        title = "esmerui_cluster_slot"
+                    }
+                    try {
+                        windows.addView(surface, params)
+                    } catch (e: Exception) {
+                        log("slot: presentation window refused (${e.message}); trying a system overlay")
+                        @Suppress("DEPRECATION")
+                        params.type = WindowManager.LayoutParams.TYPE_SYSTEM_OVERLAY
+                        windows.addView(surface, params)
+                    }
+                    view = surface
+                    manager = windows
+                }.onFailure {
+                    log("slot: window failed: ${Log.getStackTraceString(it)}")
+                    latch.countDown()
+                }
+            }
+            latch.await(4, TimeUnit.SECONDS)
+            if (result < 0) detach()
+            return result
+        }
+
+        @Synchronized
+        fun detach() {
+            val virtual = display
+            val surface = view
+            val windows = manager
+            display = null
+            view = null
+            manager = null
+            if (virtual == null && surface == null) return
+            val latch = CountDownLatch(1)
+            main.post {
+                runCatching { virtual?.release() }
+                runCatching { if (surface != null) windows?.removeViewImmediate(surface) }
+                log("slot off")
+                latch.countDown()
+            }
+            latch.await(2, TimeUnit.SECONDS)
+        }
+
+        private const val SLOT_DPI = 240
+
+        /** WindowManager.LayoutParams.TYPE_PRESENTATION, hidden from the SDK. */
+        private const val TYPE_PRESENTATION = 2037
     }
 
     // ── Input ────────────────────────────────────────────────────────────────

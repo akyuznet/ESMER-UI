@@ -151,6 +151,9 @@ object BusWatch : BroadcastReceiver() {
             when {
                 intent.getBooleanExtra("stop", false) -> projection.stop(context)
                 intent.getBooleanExtra("connect", false) -> projection.connect(context)
+                intent.getBooleanExtra("capture", false) -> handler.post {
+                    Log.i(TAG, "cluster capture: ${projection.capture(context)}")
+                }
                 intent.hasExtra("float") -> {
                     val window = com.example.esmerui.cluster.ClusterMirrorWindow
                     if (intent.getBooleanExtra("float", false)) window.show(context) else window.hide()
