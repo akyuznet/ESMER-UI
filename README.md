@@ -188,7 +188,7 @@ Install — the signed APK from the [latest release](https://github.com/akyuznet
 or your own build — then grant the pieces that cannot be granted from the UI:
 
 ```
-adb install -r ESMER-UI-1.1.apk
+adb install -r ESMER-UI-1.2.apk
 
 # Hide BYD's own navigation and status bars
 adb shell pm grant com.example.esmerui android.permission.WRITE_SECURE_SETTINGS

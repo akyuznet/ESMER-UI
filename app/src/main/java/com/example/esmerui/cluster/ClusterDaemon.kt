@@ -769,6 +769,9 @@ object ClusterDaemon {
         private var keyDisplay: Method? = null
         private var firstLogged = false
 
+        // The display routing setters are hidden; this process has the hidden-API
+        // exemptions lifted and is the one place that may reach them.
+        @android.annotation.SuppressLint("BlockedPrivateApi")
         fun init() {
             runCatching {
                 val type = Class.forName("android.hardware.input.InputManager")
