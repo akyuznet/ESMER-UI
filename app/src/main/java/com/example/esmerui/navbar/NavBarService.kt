@@ -44,6 +44,7 @@ import com.example.esmerui.car.CarBus
 import com.example.esmerui.cluster.ClusterInfoOverlay
 import com.example.esmerui.cluster.ClusterMirrorWindow
 import com.example.esmerui.cluster.ClusterProjection
+import com.example.esmerui.home.HomeAssistant
 import com.example.esmerui.car.CarControl
 import com.example.esmerui.car.CarInfo
 import com.example.esmerui.car.CarStatus
@@ -181,6 +182,7 @@ class NavBarService : Service() {
             // poll is worth running whenever anything anywhere wants a value.
             val wanted = shownActions()
             CarInfo.shown = wanted
+            HomeAssistant.wanted(this@NavBarService, wanted)
             CarStatus.hudWanted = hudShown(wanted)
             CarStatus.roofWanted = roofShown(wanted)
             if (groupReadouts.isEmpty() && stateButtons.isEmpty() &&
@@ -498,6 +500,7 @@ class NavBarService : Service() {
         // Tell the reader which signals anyone is actually looking at.
         val wanted = shownActions()
         CarInfo.shown = wanted
+        HomeAssistant.wanted(this, wanted)
         CarStatus.hudWanted = hudShown(wanted)
         CarStatus.roofWanted = roofShown(wanted)
         if (groupReadouts.isNotEmpty() || stateButtons.isNotEmpty() ||
@@ -1980,7 +1983,9 @@ class NavBarService : Service() {
             NavAction.INFO_RANGE_FUEL, NavAction.INFO_TEMP_IN,
             NavAction.INFO_TEMP_OUT, NavAction.INFO_TYRES,
             NavAction.INFO_TYRES_PSI, NavAction.INFO_TYRES_KPA,
-            NavAction.INFO_PM25, NavAction.INFO_SPEED, NavAction.INFO_SLOPE -> Unit
+            NavAction.INFO_PM25, NavAction.INFO_SPEED, NavAction.INFO_SLOPE,
+            NavAction.INFO_HOME_1, NavAction.INFO_HOME_2, NavAction.INFO_HOME_3,
+            NavAction.INFO_HOME_4, NavAction.INFO_HOME_5, NavAction.INFO_HOME_6 -> Unit
             NavAction.SEAT_HEAT -> car { CarControl.cycleSeatHeat() }
             NavAction.SEAT_VENT -> car { CarControl.cycleSeatVent() }
             NavAction.SEAT_HEAT_PASSENGER -> car { CarControl.cycleSeatHeatPassenger() }

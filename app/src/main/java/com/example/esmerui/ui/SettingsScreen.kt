@@ -218,6 +218,8 @@ fun SettingsScreen(
 
                 SettingsTab.CLUSTER -> ClusterSettingsCard(settings = settings, apps = apps)
 
+                SettingsTab.HOME_ASSISTANT -> HomeAssistantCard(settings = settings)
+
                 SettingsTab.SYSTEM -> {
                     DefaultLauncherCard(settings = settings)
                     BackupCard(settings = settings)
@@ -243,6 +245,7 @@ private enum class SettingsTab(val label: String) {
     BARS("Bars"),
     WINDOWS("Windows"),
     CLUSTER("Cluster"),
+    HOME_ASSISTANT("Home Assistant"),
     SYSTEM("System"),
 }
 

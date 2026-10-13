@@ -12,6 +12,7 @@ import android.telephony.TelephonyManager
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.setValue
+import com.example.esmerui.home.HomeAssistant
 import com.example.esmerui.launcher.NavAction
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -329,7 +330,7 @@ object CarInfo {
     private fun degrees(value: Int?): String = value?.let { "$it°" } ?: NO_VALUE
 
     /** The text under an item's icon, or a dash when the car has not answered. */
-    fun valueFor(action: NavAction): String = when (action) {
+    fun valueFor(action: NavAction): String = if (action.isHome) HomeAssistant.valueFor(action) else when (action) {
         NavAction.INFO_CLOCK -> clock()
         NavAction.INFO_DATE -> date()
         NavAction.INFO_CLOCK_DATE -> clock() + " " + meridiem()
@@ -359,7 +360,7 @@ object CarInfo {
      * reads the way the instrument cluster prints it. Null where there is nothing
      * useful to add.
      */
-    fun captionFor(action: NavAction): String? = when (action) {
+    fun captionFor(action: NavAction): String? = if (action.isHome) HomeAssistant.captionFor(action) else when (action) {
         NavAction.INFO_CLOCK -> meridiem()
         NavAction.INFO_DATE -> month()
         NavAction.INFO_CLOCK_DATE -> date() + " " + month()

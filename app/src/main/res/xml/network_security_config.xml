@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
 <!--
-  Cleartext is off by default at targetSdk 28+, which silently blocks the call to
-  OverDrive's REST API. Permit it for the loopback interface only - the launcher
-  makes no other network requests, so nothing broader should be opened up.
+  Cleartext is off by default at targetSdk 28+, which would silently block the
+  call to OverDrive's REST API on the loopback interface and, since the Home
+  Assistant tab, the user's own server - most home installs answer on plain
+  http at a LAN address or a .local name that cannot be known in advance.
+  The launcher sends nothing else over the network.
 -->
 <network-security-config>
-    <domain-config cleartextTrafficPermitted="true">
-        <domain includeSubdomains="false">127.0.0.1</domain>
-        <domain includeSubdomains="false">localhost</domain>
-    </domain-config>
+    <base-config cleartextTrafficPermitted="true" />
 </network-security-config>

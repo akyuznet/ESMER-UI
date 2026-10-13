@@ -172,7 +172,22 @@ enum class NavAction(
     INFO_TEMP_OUT("Outside temp", NavActionGroup.INFO, needsCar = true, isReadout = true),
     /** The road's grade under the car, from its own pitch sensor. */
     INFO_SLOPE("Slope", NavActionGroup.INFO, needsCar = true, isReadout = true),
+    /**
+     * Readouts from Home Assistant: each shows the state of whichever entity the
+     * Home Assistant tab assigned to it. Numbered rather than named, since what
+     * they show is the user's choice.
+     */
+    INFO_HOME_1("Home 1", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_2("Home 2", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_3("Home 3", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_4("Home 4", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_5("Home 5", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_6("Home 6", NavActionGroup.INFO, isReadout = true),
     ;
+
+    /** A Home Assistant readout, and which of the six it is. */
+    val isHome: Boolean get() = name.startsWith("INFO_HOME_")
+    val homeSlot: Int? get() = if (isHome) name.substringAfterLast('_').toIntOrNull() else null
 
     /** The head-up display controls, which share one poll gate and one colour rule. */
     val isHud: Boolean get() = group == NavActionGroup.HUD

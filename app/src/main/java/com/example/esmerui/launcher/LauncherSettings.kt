@@ -121,6 +121,10 @@ class LauncherSettings private constructor(context: Context) {
     private var clusterInfoEnabledState by mutableStateOf(prefs.getBoolean(KEY_CLUSTER_INFO_ENABLED, false))
     private var clusterInfoItemsState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_ITEMS, null))
     private var clusterInfoPlacesState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_PLACES, null))
+    private var homeAssistantUrlState by mutableStateOf(prefs.getString(KEY_HA_URL, null))
+    private var homeAssistantTokenState by mutableStateOf(prefs.getString(KEY_HA_TOKEN, null))
+    private var homeAssistantIntervalState by mutableIntStateOf(prefs.getInt(KEY_HA_INTERVAL, DEFAULT_HA_INTERVAL))
+    private var homeAssistantSlotsState by mutableStateOf(prefs.getString(KEY_HA_SLOTS, null))
     private var windowWidthState by mutableIntStateOf(
         prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH).coerceIn(WINDOW_SIZE_RANGE)
     )
@@ -231,6 +235,38 @@ class LauncherSettings private constructor(context: Context) {
         set(value) {
             clusterInfoPlacesState = value
             prefs.edit().putString(KEY_CLUSTER_INFO_PLACES, value).apply()
+        }
+
+    /** The Home Assistant server, as typed; see HomeAssistant.baseUrl for the form used. */
+    var homeAssistantUrl: String?
+        get() = homeAssistantUrlState
+        set(value) {
+            homeAssistantUrlState = value
+            prefs.edit().putString(KEY_HA_URL, value).apply()
+        }
+
+    /** A long-lived access token for that server. */
+    var homeAssistantToken: String?
+        get() = homeAssistantTokenState
+        set(value) {
+            homeAssistantTokenState = value
+            prefs.edit().putString(KEY_HA_TOKEN, value).apply()
+        }
+
+    /** Seconds between fetches while a Home readout is on screen. */
+    var homeAssistantInterval: Int
+        get() = homeAssistantIntervalState
+        set(value) {
+            homeAssistantIntervalState = value
+            prefs.edit().putInt(KEY_HA_INTERVAL, value).apply()
+        }
+
+    /** Which entity each Home readout shows, `slot:entity_id` joined with `;`. */
+    var homeAssistantSlots: String?
+        get() = homeAssistantSlotsState
+        set(value) {
+            homeAssistantSlotsState = value
+            prefs.edit().putString(KEY_HA_SLOTS, value).apply()
         }
 
     /** Which windowing technique to use. */
@@ -489,6 +525,10 @@ class LauncherSettings private constructor(context: Context) {
         clusterInfoEnabledState = prefs.getBoolean(KEY_CLUSTER_INFO_ENABLED, false)
         clusterInfoItemsState = prefs.getString(KEY_CLUSTER_INFO_ITEMS, null)
         clusterInfoPlacesState = prefs.getString(KEY_CLUSTER_INFO_PLACES, null)
+        homeAssistantUrlState = prefs.getString(KEY_HA_URL, null)
+        homeAssistantTokenState = prefs.getString(KEY_HA_TOKEN, null)
+        homeAssistantIntervalState = prefs.getInt(KEY_HA_INTERVAL, DEFAULT_HA_INTERVAL)
+        homeAssistantSlotsState = prefs.getString(KEY_HA_SLOTS, null)
         windowWidthState = prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH)
             .coerceIn(WINDOW_SIZE_RANGE)
         windowHeightState = prefs.getInt(KEY_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT)
@@ -540,6 +580,11 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_CLUSTER_INFO_ENABLED = "cluster_info_enabled"
         private const val KEY_CLUSTER_INFO_ITEMS = "cluster_info_items"
         private const val KEY_CLUSTER_INFO_PLACES = "cluster_info_places"
+        private const val KEY_HA_URL = "home_assistant_url"
+        private const val KEY_HA_TOKEN = "home_assistant_token"
+        private const val KEY_HA_INTERVAL = "home_assistant_interval"
+        private const val KEY_HA_SLOTS = "home_assistant_slots"
+        private const val DEFAULT_HA_INTERVAL = 30
         private const val KEY_WINDOW_WIDTH = "window_width_pct"
         private const val KEY_WINDOW_HEIGHT = "window_height_pct"
         private const val KEY_WINDOW_X = "window_x_pct"

@@ -70,6 +70,7 @@ object ClusterInfoOverlay {
         NavAction.INFO_RANGE_EV, NavAction.INFO_RANGE_FUEL,
         NavAction.INFO_TEMP_IN, NavAction.INFO_TEMP_OUT,
         NavAction.INFO_PM25, NavAction.INFO_SLOPE,
+        NavAction.INFO_HOME_1, NavAction.INFO_HOME_2, NavAction.INFO_HOME_3, NavAction.INFO_HOME_4, NavAction.INFO_HOME_5, NavAction.INFO_HOME_6,
     )
 
     /** Where one readout sits (its top-left corner, in cluster pixels) and how big it is. */

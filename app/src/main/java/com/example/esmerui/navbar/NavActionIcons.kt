@@ -139,5 +139,6 @@ object NavActionIcons {
         NavAction.INFO_TEMP_IN -> R.drawable.ic_info_temp
         NavAction.INFO_TEMP_OUT -> R.drawable.ic_info_temp
         NavAction.INFO_SLOPE -> R.drawable.ic_info_slope
+        NavAction.INFO_HOME_1, NavAction.INFO_HOME_2, NavAction.INFO_HOME_3, NavAction.INFO_HOME_4, NavAction.INFO_HOME_5, NavAction.INFO_HOME_6 -> R.drawable.ic_info_home
     }
 }

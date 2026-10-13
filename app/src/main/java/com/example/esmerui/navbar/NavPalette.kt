@@ -3,6 +3,7 @@ package com.example.esmerui.navbar
 import android.graphics.Color
 import com.example.esmerui.car.CarBus
 import com.example.esmerui.car.CarInfo
+import com.example.esmerui.home.HomeAssistant
 import com.example.esmerui.launcher.NavAction
 
 /**
@@ -42,7 +43,10 @@ object NavPalette {
      * beam green, main beam blue - the colour every car uses for it, so it reads
      * without a legend.
      */
-    fun infoColour(action: NavAction): Int = when (action) {
+    fun infoColour(action: NavAction): Int = if (action.isHome) {
+        // A switch or a binary sensor that is on reads as active, like a button.
+        if (HomeAssistant.isOn(action)) ACTIVE else ICON
+    } else when (action) {
         NavAction.INFO_LIGHTS -> when (CarInfo.headlights) {
             CarBus.Beam.HIGH -> BEAM
             CarBus.Beam.LOW -> ACTIVE

@@ -77,6 +77,15 @@ object BusWatch : BroadcastReceiver() {
     private const val ACTION_PRESENT = "com.example.esmerui.PRESENT"
 
     /**
+     * Drives the Home Assistant client from adb, debug builds only:
+     *
+     *     adb shell am broadcast -a com.example.esmerui.HOME -p com.example.esmerui      *         [--ez test true] [--ez catalog true] [--ez refresh true]      *         [--ei slot 1 --es entity sensor.x]
+     *
+     * Three seconds later it logs the status, the last error and every slot's value.
+     */
+    private const val ACTION_HOME = "com.example.esmerui.HOME"
+
+    /**
      * Runs the accessibility rebind - our entry taken out of the enabled list, held
      * out until the platform has seen it gone, and put back - which is what clears
      * a binding the platform has left half-open:
@@ -128,6 +137,7 @@ object BusWatch : BroadcastReceiver() {
             addAction(ACTION_CLUSTER)
             addAction(ACTION_SET)
             addAction(ACTION_PRESENT)
+            addAction(ACTION_HOME)
             addAction(ACTION_REPAIR)
             addAction(ACTION_POWER)
             addAction(ACTION_PROJECT)
@@ -189,6 +199,23 @@ object BusWatch : BroadcastReceiver() {
             if (!debuggable(context)) return
             Log.i(TAG, "repair: forcing an accessibility rebind")
             com.example.esmerui.navbar.NavBarService.repairAccessibility(context)
+            return
+        }
+
+        if (intent.action == ACTION_HOME) {
+            if (!debuggable(context)) return
+            val home = com.example.esmerui.home.HomeAssistant
+            if (intent.hasExtra("slot")) {
+                home.setSlot(context, intent.getIntExtra("slot", 1), intent.getStringExtra("entity"))
+            }
+            if (intent.getBooleanExtra("test", false)) home.test(context)
+            if (intent.getBooleanExtra("catalog", false)) home.loadCatalog(context)
+            if (intent.getBooleanExtra("refresh", false)) home.refreshNow(context)
+            handler.postDelayed({
+                val slots = com.example.esmerui.launcher.NavAction.entries.filter { it.isHome }
+                    .joinToString(" ") { "${it.name}=${home.valueFor(it)}|${home.captionFor(it)}" }
+                Log.i(TAG, "home: status=\"${home.status}\" error=${home.lastError} catalog=${home.catalog.size} $slots")
+            }, 3_000L)
             return
         }
 
