@@ -185,6 +185,8 @@ object ClusterProjection {
                 applyPlacement(app)
                 layerStackCached = layerStack(app)
                 publish(Phase.PROJECTING, "Projecting to the cluster.")
+                // The display may have just been created; the overlay follows it.
+                ClusterInfoOverlay.sync(app)
                 refreshMirrors()
             }.onFailure {
                 fail(it)

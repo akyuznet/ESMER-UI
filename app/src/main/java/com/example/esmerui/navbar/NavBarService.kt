@@ -41,6 +41,7 @@ import androidx.core.view.isVisible
 import com.example.esmerui.car.BusWatch
 import com.example.esmerui.car.BydFeatures
 import com.example.esmerui.car.CarBus
+import com.example.esmerui.cluster.ClusterInfoOverlay
 import com.example.esmerui.cluster.ClusterMirrorWindow
 import com.example.esmerui.cluster.ClusterProjection
 import com.example.esmerui.car.CarControl
@@ -156,7 +157,8 @@ class NavBarService : Service() {
         val onHome = settings.homeCells.orEmpty().mapNotNull {
             (it.item as? HomeItem.Action)?.action
         }
-        return (onBars + onHome).toSet()
+        // The cluster overlay reads the same values, drawn on the dial instead.
+        return (onBars + onHome + ClusterInfoOverlay.wanted(this)).toSet()
     }
 
     /**
@@ -238,7 +240,17 @@ class NavBarService : Service() {
         // on their own thread rather than on a press.
         ClusterProjection.addListener(clusterListener)
         ClusterMirrorWindow.addListener(clusterListener)
+        // The readouts on the cluster are polled for like the bars' own, and
+        // their window is put up here so it is there for the next projection.
+        ClusterInfoOverlay.addListener(infoOverlayListener)
+        ClusterInfoOverlay.sync(this)
         ClusterProjection.onServiceStart(this)
+    }
+
+    /** What the overlay shows changed: the poll's set of signals follows it. */
+    private val infoOverlayListener: () -> Unit = {
+        pollHandler.removeCallbacks(statusPoll)
+        startPollingIfWanted()
     }
 
     private val clusterListener: () -> Unit = { refreshButtonStates() }
@@ -426,6 +438,9 @@ class NavBarService : Service() {
         pollHandler.removeCallbacks(powerPoll)
         runCatching { unregisterReceiver(shutdownReceiver) }
         BusWatch.unregister(this)
+        ClusterInfoOverlay.removeListener(infoOverlayListener)
+        ClusterProjection.removeListener(clusterListener)
+        ClusterMirrorWindow.removeListener(clusterListener)
         super.onDestroy()
     }
 

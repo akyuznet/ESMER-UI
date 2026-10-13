@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
@@ -48,6 +50,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.example.esmerui.cluster.ClusterGeometry
+import com.example.esmerui.cluster.ClusterInfoOverlay
 import com.example.esmerui.cluster.ClusterMirrorWindow
 import com.example.esmerui.cluster.ClusterPlacement
 import com.example.esmerui.cluster.ClusterProjection
@@ -68,6 +71,7 @@ import kotlin.math.roundToInt
  * resize mode the preview instead carries a frame that stands for the cast
  * window's bounds, dragged and stretched by hand.
  */
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry>) {
     val context = LocalContext.current
@@ -81,6 +85,10 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
 
     // The frame being dragged in resize mode, in cluster pixels; null when not resizing.
     var draft by remember { mutableStateOf<Rect?>(null) }
+    // The readouts' frame while it is being moved, in cluster pixels; null otherwise.
+    var infoDraft by remember { mutableStateOf<Rect?>(null) }
+    val infoItems = ClusterInfoOverlay.items(settings)
+    val infoLayout = ClusterInfoOverlay.layout(settings)
     val placement = ClusterPlacement.from(settings.clusterPlacement)
     val scaling = MirrorScaling.from(settings.clusterScaling)
 
@@ -176,7 +184,7 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
         ) {
             val viewW = constraints.maxWidth
             val viewH = constraints.maxHeight
-            ClusterPreview(Modifier.fillMaxSize(), touchable = draft == null)
+            ClusterPreview(Modifier.fillMaxSize(), touchable = draft == null && infoDraft == null)
             if (!ClusterProjection.mirrorLive) {
                 Text(
                     text = if (projecting) "Mirror starting…" else "The cluster shows here while projecting",
@@ -193,6 +201,21 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
                     viewHeight = viewH,
                     keepAspect = settings.clusterKeepAspect,
                     onChange = { draft = it },
+                )
+            }
+            infoDraft?.let { frame ->
+                // The frame's width sets the readouts' size; its height follows.
+                ResizeFrame(
+                    frame = frame,
+                    scaling = scaling,
+                    viewWidth = viewW,
+                    viewHeight = viewH,
+                    keepAspect = false,
+                    onChange = {
+                        val fitted = ClusterInfoOverlay.fit(it, infoItems.size, infoLayout)
+                        infoDraft = fitted
+                        ClusterInfoOverlay.preview(context, fitted)
+                    },
                 )
             }
         }
@@ -241,6 +264,7 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
             FilterChip(
                 selected = draft != null || placement == ClusterPlacement.CUSTOM,
                 onClick = {
+                    infoDraft = null
                     if (draft == null) draft = Rect(ClusterProjection.currentBounds(context))
                 },
                 label = { Text(if (draft == null) "Resize" else "Resizing…") },
@@ -278,6 +302,101 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
                 checked = settings.clusterKeepAspect,
                 onCheckedChange = { settings.clusterKeepAspect = it },
             )
+        }
+    }
+
+    SettingsCard(title = "Readouts on the cluster") {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    text = "Show the launcher's readouts on the dial",
+                    style = MaterialTheme.typography.bodyLarge,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    text = "Drawn beside the cast app while projecting, with the car's own " +
+                        "icons untouched. Pick what to show, then Move to drag it on the " +
+                        "preview; the frame's width sets the size.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Switch(
+                checked = settings.clusterInfoEnabled,
+                onCheckedChange = {
+                    settings.clusterInfoEnabled = it
+                    ClusterInfoOverlay.sync(context)
+                },
+            )
+        }
+        Spacer(Modifier.height(12.dp))
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            ClusterInfoOverlay.choices.forEach { action ->
+                val picked = action in infoItems
+                FilterChip(
+                    selected = picked,
+                    onClick = {
+                        val next = if (picked) infoItems - action else infoItems + action
+                        settings.clusterInfoItems = next.joinToString(",") { it.name }
+                        infoDraft?.let { infoDraft = ClusterInfoOverlay.fit(it, next.size, infoLayout) }
+                        ClusterInfoOverlay.sync(context)
+                    },
+                    label = { Text(action.label) },
+                )
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            ClusterInfoOverlay.Layout.entries.forEach { option ->
+                FilterChip(
+                    selected = infoLayout == option,
+                    onClick = {
+                        settings.clusterInfoLayout = option.name
+                        infoDraft?.let { infoDraft = ClusterInfoOverlay.fit(it, infoItems.size, option) }
+                        ClusterInfoOverlay.sync(context)
+                    },
+                    label = { Text(option.label) },
+                )
+            }
+            Spacer(Modifier.width(8.dp))
+            FilterChip(
+                selected = infoDraft != null,
+                onClick = {
+                    draft = null
+                    if (infoDraft == null) infoDraft = ClusterInfoOverlay.rect(settings)
+                },
+                label = { Text(if (infoDraft == null) "Move" else "Moving…") },
+            )
+        }
+        if (infoDraft != null) {
+            Spacer(Modifier.height(12.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Button(onClick = {
+                    infoDraft?.let {
+                        settings.clusterInfoRect = "${it.left},${it.top},${it.right},${it.bottom}"
+                    }
+                    infoDraft = null
+                    ClusterInfoOverlay.sync(context)
+                }) { Text("Apply") }
+                OutlinedButton(onClick = {
+                    infoDraft = null
+                    ClusterInfoOverlay.sync(context)
+                }) { Text("Cancel") }
+                OutlinedButton(onClick = {
+                    val reset = ClusterInfoOverlay.defaultRect(settings)
+                    infoDraft = reset
+                    ClusterInfoOverlay.preview(context, reset)
+                }) { Text("Reset") }
+            }
         }
     }
 

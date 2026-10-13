@@ -97,6 +97,11 @@ the app, press `Project to cluster`; `Stop` hands the dial back to the car.
   the dial's 8:3 shape. The halves are docked windows and anything else is a slot (a
   window of that size on the cluster carrying its own small display), so none of them
   shows the ROM's freeform caption bar.
+- **Readouts on the cluster** — the launcher's own readouts (clock and date, gear,
+  speed, headlights, tyre pressures, ranges, temperatures, air quality, slope) drawn
+  on the dial beside the cast app, with the car's own icons untouched. Pick which,
+  stack them or set them in a row, and `Move` to drag the frame on the preview; its
+  width sets their size.
 - **Mirror scaling** — Fit, Stretch or Zoom for how the 1920×720 image fills the
   preview and the floating window.
 - **Auto-start on power-on** — casts the last-used app again each time the car powers

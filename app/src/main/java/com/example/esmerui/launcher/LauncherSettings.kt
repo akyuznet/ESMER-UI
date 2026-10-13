@@ -118,6 +118,10 @@ class LauncherSettings private constructor(context: Context) {
     private var clusterScalingState by mutableStateOf(prefs.getString(KEY_CLUSTER_SCALING, null))
     private var clusterAutoStartState by mutableStateOf(prefs.getBoolean(KEY_CLUSTER_AUTO_START, false))
     private var clusterFloatRectState by mutableStateOf(prefs.getString(KEY_CLUSTER_FLOAT_RECT, null))
+    private var clusterInfoEnabledState by mutableStateOf(prefs.getBoolean(KEY_CLUSTER_INFO_ENABLED, false))
+    private var clusterInfoItemsState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_ITEMS, null))
+    private var clusterInfoRectState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_RECT, null))
+    private var clusterInfoLayoutState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_LAYOUT, null))
     private var windowWidthState by mutableIntStateOf(
         prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH).coerceIn(WINDOW_SIZE_RANGE)
     )
@@ -201,6 +205,38 @@ class LauncherSettings private constructor(context: Context) {
         set(value) {
             clusterFloatRectState = value
             prefs.edit().putString(KEY_CLUSTER_FLOAT_RECT, value).apply()
+        }
+
+    /** Whether the launcher's readouts are drawn on the cluster beside the cast app. */
+    var clusterInfoEnabled: Boolean
+        get() = clusterInfoEnabledState
+        set(value) {
+            clusterInfoEnabledState = value
+            prefs.edit().putBoolean(KEY_CLUSTER_INFO_ENABLED, value).apply()
+        }
+
+    /** Which readouts, as [NavAction] names separated by commas; null until picked. */
+    var clusterInfoItems: String?
+        get() = clusterInfoItemsState
+        set(value) {
+            clusterInfoItemsState = value
+            prefs.edit().putString(KEY_CLUSTER_INFO_ITEMS, value).apply()
+        }
+
+    /** Where the readouts sit on the cluster, `l,t,r,b` in cluster pixels. */
+    var clusterInfoRect: String?
+        get() = clusterInfoRectState
+        set(value) {
+            clusterInfoRectState = value
+            prefs.edit().putString(KEY_CLUSTER_INFO_RECT, value).apply()
+        }
+
+    /** A [com.example.esmerui.cluster.ClusterInfoOverlay.Layout] name: stacked or in a row. */
+    var clusterInfoLayout: String?
+        get() = clusterInfoLayoutState
+        set(value) {
+            clusterInfoLayoutState = value
+            prefs.edit().putString(KEY_CLUSTER_INFO_LAYOUT, value).apply()
         }
 
     /** Which windowing technique to use. */
@@ -456,6 +492,10 @@ class LauncherSettings private constructor(context: Context) {
         clusterScalingState = prefs.getString(KEY_CLUSTER_SCALING, null)
         clusterAutoStartState = prefs.getBoolean(KEY_CLUSTER_AUTO_START, false)
         clusterFloatRectState = prefs.getString(KEY_CLUSTER_FLOAT_RECT, null)
+        clusterInfoEnabledState = prefs.getBoolean(KEY_CLUSTER_INFO_ENABLED, false)
+        clusterInfoItemsState = prefs.getString(KEY_CLUSTER_INFO_ITEMS, null)
+        clusterInfoRectState = prefs.getString(KEY_CLUSTER_INFO_RECT, null)
+        clusterInfoLayoutState = prefs.getString(KEY_CLUSTER_INFO_LAYOUT, null)
         windowWidthState = prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH)
             .coerceIn(WINDOW_SIZE_RANGE)
         windowHeightState = prefs.getInt(KEY_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT)
@@ -504,6 +544,10 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_CLUSTER_SCALING = "cluster_scaling"
         private const val KEY_CLUSTER_AUTO_START = "cluster_auto_start"
         private const val KEY_CLUSTER_FLOAT_RECT = "cluster_float_rect"
+        private const val KEY_CLUSTER_INFO_ENABLED = "cluster_info_enabled"
+        private const val KEY_CLUSTER_INFO_ITEMS = "cluster_info_items"
+        private const val KEY_CLUSTER_INFO_RECT = "cluster_info_rect"
+        private const val KEY_CLUSTER_INFO_LAYOUT = "cluster_info_layout"
         private const val KEY_WINDOW_WIDTH = "window_width_pct"
         private const val KEY_WINDOW_HEIGHT = "window_height_pct"
         private const val KEY_WINDOW_X = "window_x_pct"
