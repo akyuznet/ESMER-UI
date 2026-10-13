@@ -120,8 +120,7 @@ class LauncherSettings private constructor(context: Context) {
     private var clusterFloatRectState by mutableStateOf(prefs.getString(KEY_CLUSTER_FLOAT_RECT, null))
     private var clusterInfoEnabledState by mutableStateOf(prefs.getBoolean(KEY_CLUSTER_INFO_ENABLED, false))
     private var clusterInfoItemsState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_ITEMS, null))
-    private var clusterInfoRectState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_RECT, null))
-    private var clusterInfoLayoutState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_LAYOUT, null))
+    private var clusterInfoPlacesState by mutableStateOf(prefs.getString(KEY_CLUSTER_INFO_PLACES, null))
     private var windowWidthState by mutableIntStateOf(
         prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH).coerceIn(WINDOW_SIZE_RANGE)
     )
@@ -223,20 +222,15 @@ class LauncherSettings private constructor(context: Context) {
             prefs.edit().putString(KEY_CLUSTER_INFO_ITEMS, value).apply()
         }
 
-    /** Where the readouts sit on the cluster, `l,t,r,b` in cluster pixels. */
-    var clusterInfoRect: String?
-        get() = clusterInfoRectState
+    /**
+     * Each readout's hand-set place and size on the cluster, `NAME:x,y,size`
+     * joined with `;` - x and y in cluster pixels, size as a percentage.
+     */
+    var clusterInfoPlaces: String?
+        get() = clusterInfoPlacesState
         set(value) {
-            clusterInfoRectState = value
-            prefs.edit().putString(KEY_CLUSTER_INFO_RECT, value).apply()
-        }
-
-    /** A [com.example.esmerui.cluster.ClusterInfoOverlay.Layout] name: stacked or in a row. */
-    var clusterInfoLayout: String?
-        get() = clusterInfoLayoutState
-        set(value) {
-            clusterInfoLayoutState = value
-            prefs.edit().putString(KEY_CLUSTER_INFO_LAYOUT, value).apply()
+            clusterInfoPlacesState = value
+            prefs.edit().putString(KEY_CLUSTER_INFO_PLACES, value).apply()
         }
 
     /** Which windowing technique to use. */
@@ -494,8 +488,7 @@ class LauncherSettings private constructor(context: Context) {
         clusterFloatRectState = prefs.getString(KEY_CLUSTER_FLOAT_RECT, null)
         clusterInfoEnabledState = prefs.getBoolean(KEY_CLUSTER_INFO_ENABLED, false)
         clusterInfoItemsState = prefs.getString(KEY_CLUSTER_INFO_ITEMS, null)
-        clusterInfoRectState = prefs.getString(KEY_CLUSTER_INFO_RECT, null)
-        clusterInfoLayoutState = prefs.getString(KEY_CLUSTER_INFO_LAYOUT, null)
+        clusterInfoPlacesState = prefs.getString(KEY_CLUSTER_INFO_PLACES, null)
         windowWidthState = prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH)
             .coerceIn(WINDOW_SIZE_RANGE)
         windowHeightState = prefs.getInt(KEY_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT)
@@ -546,8 +539,7 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_CLUSTER_FLOAT_RECT = "cluster_float_rect"
         private const val KEY_CLUSTER_INFO_ENABLED = "cluster_info_enabled"
         private const val KEY_CLUSTER_INFO_ITEMS = "cluster_info_items"
-        private const val KEY_CLUSTER_INFO_RECT = "cluster_info_rect"
-        private const val KEY_CLUSTER_INFO_LAYOUT = "cluster_info_layout"
+        private const val KEY_CLUSTER_INFO_PLACES = "cluster_info_places"
         private const val KEY_WINDOW_WIDTH = "window_width_pct"
         private const val KEY_WINDOW_HEIGHT = "window_height_pct"
         private const val KEY_WINDOW_X = "window_x_pct"

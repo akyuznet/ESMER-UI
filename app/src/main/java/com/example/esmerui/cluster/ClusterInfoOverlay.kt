@@ -14,7 +14,6 @@ import android.os.Handler
 import android.os.Looper
 import android.util.Log
 import android.view.Display
-import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
 import android.widget.FrameLayout
@@ -33,16 +32,16 @@ import kotlin.math.roundToInt
 
 /**
  * The launcher's readouts drawn on the instrument cluster: a clock, the gear,
- * tyre pressures, range - whichever the user picked - at a place and size of
- * their choosing, beside the app being projected.
+ * tyre pressures, range - whichever the user picked - each at its own place
+ * and size, beside the app being projected.
  *
  * It is a [Presentation] on the cluster's projection display, so it needs no
  * permission and no helper: the cluster composites it like the app, under its
  * own top bar, warning lamps and readouts and over its background. The window
- * is transparent and takes no touches, so the app under it keeps every tap the
- * mirror sends. It is visible on the dial only while the cluster is projecting,
- * but it is kept up all the time so that nothing has to be rebuilt when a
- * projection starts.
+ * covers the display but is transparent and takes no touches, so the app under
+ * it keeps every tap the mirror sends. It is visible on the dial only while
+ * the cluster is projecting, but it is kept up all the time so that nothing
+ * has to be rebuilt when a projection starts.
  *
  * Values come from [CarInfo] the same way the bars' do; whatever is picked here
  * joins the set the bar service polls for.
@@ -51,10 +50,14 @@ object ClusterInfoOverlay {
 
     private const val TAG = "ClusterInfoOverlay"
 
-    /** One readout's natural size, in cluster pixels, before scaling. */
+    /** One readout's size at 100 %, in cluster pixels. */
     const val CHIP_WIDTH = 420
     const val CHIP_HEIGHT = 120
-    const val MIN_WIDTH = 320
+
+    /** Size as a percentage of that. */
+    const val MIN_SIZE = 25
+    const val MAX_SIZE = 400
+    const val DEFAULT_SIZE = 100
 
     /**
      * The readouts that make sense on the dial. The radios are the head unit's,
@@ -69,17 +72,29 @@ object ClusterInfoOverlay {
         NavAction.INFO_PM25, NavAction.INFO_SLOPE,
     )
 
-    enum class Layout(val label: String) {
-        COLUMN("Column"), ROW("Row");
+    /** Where one readout sits (its top-left corner, in cluster pixels) and how big it is. */
+    data class Placement(val action: NavAction, val x: Int, val y: Int, val size: Int) {
+        val width: Int get() = CHIP_WIDTH * size / 100
+        val height: Int get() = CHIP_HEIGHT * size / 100
+        val rect: Rect get() = Rect(x, y, x + width, y + height)
 
-        companion object {
-            fun from(name: String?): Layout = entries.firstOrNull { it.name == name } ?: COLUMN
+        /** The same readout, kept on the cluster. */
+        fun clamped(): Placement {
+            val s = size.coerceIn(MIN_SIZE, MAX_SIZE)
+            val w = CHIP_WIDTH * s / 100
+            val h = CHIP_HEIGHT * s / 100
+            return Placement(
+                action,
+                x.coerceIn(0, (ClusterGeometry.WIDTH - w).coerceAtLeast(0)),
+                y.coerceIn(0, (ClusterGeometry.HEIGHT - h).coerceAtLeast(0)),
+                s,
+            )
         }
     }
 
     private val DEFAULT_ITEMS = listOf(NavAction.INFO_CLOCK_DATE)
 
-    /** Beside the dial's left telltales, clear of its top bar. */
+    /** Down the left, beside the dial's telltales and clear of its top bar. */
     private const val DEFAULT_LEFT = 40
     private const val DEFAULT_TOP = 170
 
@@ -99,11 +114,11 @@ object ClusterInfoOverlay {
     private var app: Context? = null
 
     /** A move not yet applied; a drag sends many a second and one per frame is plenty. */
-    private var pending: Rect? = null
+    private var pending: Placement? = null
     private val flush = Runnable {
-        val rect = pending ?: return@Runnable
+        val moved = pending ?: return@Runnable
         pending = null
-        app?.let { apply(it, rect) }
+        app?.let { apply(it, moved) }
     }
 
     // ── Settings ─────────────────────────────────────────────────────────────
@@ -116,46 +131,59 @@ object ClusterInfoOverlay {
         }
     }
 
-    fun layout(settings: LauncherSettings): Layout = Layout.from(settings.clusterInfoLayout)
-
-    /** Where the overlay sits on the cluster, sized to what it shows. */
-    fun rect(settings: LauncherSettings): Rect {
-        val saved = settings.clusterInfoRect?.split(',')
-            ?.mapNotNull { it.trim().toIntOrNull() }?.takeIf { it.size == 4 }
-        val raw = if (saved != null) {
-            Rect(saved[0], saved[1], saved[2], saved[3])
-        } else {
-            Rect(DEFAULT_LEFT, DEFAULT_TOP, DEFAULT_LEFT + CHIP_WIDTH, DEFAULT_TOP + CHIP_HEIGHT)
-        }
-        return fit(raw, items(settings).size, layout(settings))
-    }
-
-    fun defaultRect(settings: LauncherSettings): Rect = fit(
-        Rect(DEFAULT_LEFT, DEFAULT_TOP, DEFAULT_LEFT + CHIP_WIDTH, DEFAULT_TOP + CHIP_HEIGHT),
-        items(settings).size, layout(settings),
-    )
-
     /**
-     * A frame's left, top and width are the user's; its height follows what it
-     * holds, and the whole stays on the cluster. The width is what sets the size
-     * of the readouts.
+     * Every picked readout with its place and size. One never placed by hand
+     * takes the next spot down the left.
      */
-    fun fit(frame: Rect, count: Int, layout: Layout): Rect {
-        val width = frame.width().coerceIn(MIN_WIDTH, ClusterGeometry.WIDTH)
-        val height = heightFor(width, count, layout).coerceAtMost(ClusterGeometry.HEIGHT)
-        val left = frame.left.coerceIn(0, ClusterGeometry.WIDTH - width)
-        val top = frame.top.coerceIn(0, ClusterGeometry.HEIGHT - height)
-        return Rect(left, top, left + width, top + height)
+    fun placements(settings: LauncherSettings): List<Placement> {
+        val saved = parse(settings.clusterInfoPlaces)
+        return items(settings).mapIndexed { index, action ->
+            saved[action]?.let { Placement(action, it[0], it[1], it[2]) }
+                ?: Placement(action, DEFAULT_LEFT, DEFAULT_TOP + index * CHIP_HEIGHT, DEFAULT_SIZE)
+        }.map { it.clamped() }
     }
 
-    fun heightFor(width: Int, count: Int, layout: Layout): Int {
-        val n = count.coerceAtLeast(1)
-        val scale = when (layout) {
-            Layout.COLUMN -> width.toFloat() / CHIP_WIDTH
-            Layout.ROW -> width.toFloat() / (CHIP_WIDTH * n)
-        }
-        val rows = if (layout == Layout.COLUMN) n else 1
-        return (CHIP_HEIGHT * rows * scale).roundToInt().coerceAtLeast(1)
+    /** `NAME:x,y,size;NAME:x,y,size` - only what the user has set by hand. */
+    private fun parse(saved: String?): Map<NavAction, List<Int>> =
+        saved.orEmpty().split(';').mapNotNull { entry ->
+            val name = entry.substringBefore(':').trim()
+            val numbers = entry.substringAfter(':', "").split(',').mapNotNull { it.trim().toIntOrNull() }
+            val action = choices.firstOrNull { it.name == name } ?: return@mapNotNull null
+            if (numbers.size != 3) null else action to numbers
+        }.toMap()
+
+    private fun save(settings: LauncherSettings, places: Map<NavAction, List<Int>>) {
+        settings.clusterInfoPlaces = places.entries
+            .joinToString(";") { (action, n) -> "${action.name}:${n[0]},${n[1]},${n[2]}" }
+            .ifEmpty { null }
+    }
+
+    private fun current(settings: LauncherSettings, action: NavAction): Placement =
+        placements(settings).firstOrNull { it.action == action }
+            ?: Placement(action, DEFAULT_LEFT, DEFAULT_TOP, DEFAULT_SIZE)
+
+    /** Puts a readout's top-left corner at [x],[y] and keeps it there. */
+    fun place(context: Context, action: NavAction, x: Int, y: Int) {
+        val settings = LauncherSettings.get(context)
+        val was = current(settings, action)
+        val next = Placement(action, x, y, was.size).clamped()
+        save(settings, parse(settings.clusterInfoPlaces) + (action to listOf(next.x, next.y, next.size)))
+        sync(context)
+    }
+
+    /** Sets a readout's size, as a percentage of its natural size. */
+    fun resize(context: Context, action: NavAction, size: Int) {
+        val settings = LauncherSettings.get(context)
+        val was = current(settings, action)
+        val next = Placement(action, was.x, was.y, size).clamped()
+        save(settings, parse(settings.clusterInfoPlaces) + (action to listOf(next.x, next.y, next.size)))
+        sync(context)
+    }
+
+    /** Forgets every hand-set place and size. */
+    fun resetPlaces(context: Context) {
+        LauncherSettings.get(context).clusterInfoPlaces = null
+        sync(context)
     }
 
     /** What the bar service should poll for on the overlay's behalf. */
@@ -174,10 +202,10 @@ object ClusterInfoOverlay {
         main.post { apply(app, null) }
     }
 
-    /** Moves it to [frame] without saving, so a drag on the preview shows live. */
-    fun preview(context: Context, frame: Rect) {
+    /** Moves one readout to [x],[y] without saving, so a drag on the preview shows live. */
+    fun preview(context: Context, action: NavAction, x: Int, y: Int) {
         app = context.applicationContext
-        pending = Rect(frame)
+        pending = Placement(action, x, y, DEFAULT_SIZE)
         main.removeCallbacks(flush)
         main.post(flush)
     }
@@ -188,7 +216,7 @@ object ClusterInfoOverlay {
         listeners.forEach { it() }
     }
 
-    private fun apply(app: Context, override: Rect?) {
+    private fun apply(app: Context, moved: Placement?) {
         watch(app)
         val settings = LauncherSettings.get(app)
         val display = app.getSystemService(DisplayManager::class.java)
@@ -198,17 +226,16 @@ object ClusterInfoOverlay {
             announce(emptySet())
             return
         }
-        val items = items(settings)
-        val layout = layout(settings)
-        val rect = override?.let { fit(it, items.size, layout) } ?: rect(settings)
+        val placements = placements(settings).map {
+            if (moved != null && it.action == moved.action) it.copy(x = moved.x, y = moved.y).clamped() else it
+        }
         val current = presentation
         if (current == null || !current.isShowing || current.display.displayId != display.displayId) {
             dismiss()
             show(app, display)
         }
-        view?.set(items, layout)
-        place(rect)
-        announce(items.toSet())
+        view?.set(placements)
+        announce(placements.map { it.action }.toSet())
     }
 
     private fun show(app: Context, display: Display) {
@@ -225,7 +252,9 @@ object ClusterInfoOverlay {
             val holder = FrameLayout(shown.context).apply {
                 addView(
                     info,
-                    FrameLayout.LayoutParams(CHIP_WIDTH, CHIP_HEIGHT, Gravity.TOP or Gravity.START),
+                    FrameLayout.LayoutParams(
+                        FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT,
+                    ),
                 )
             }
             shown.setContentView(holder)
@@ -235,21 +264,6 @@ object ClusterInfoOverlay {
             isShown = true
             Log.i(TAG, "shown on display ${display.displayId}")
         }.onFailure { Log.w(TAG, "could not show: $it") }
-    }
-
-    private fun place(rect: Rect) {
-        val target = view ?: return
-        val params = target.layoutParams as FrameLayout.LayoutParams
-        if (params.width == rect.width() && params.height == rect.height() &&
-            params.leftMargin == rect.left && params.topMargin == rect.top
-        ) {
-            return
-        }
-        params.width = rect.width()
-        params.height = rect.height()
-        params.leftMargin = rect.left
-        params.topMargin = rect.top
-        target.layoutParams = params
     }
 
     private fun dismiss() {
@@ -282,14 +296,13 @@ object ClusterInfoOverlay {
     // ── Drawing ──────────────────────────────────────────────────────────────
 
     /**
-     * The readouts, each drawn in a [CHIP_WIDTH] x [CHIP_HEIGHT] box and scaled
-     * to the view, stacked down or set in a row. Repainted once a second: the
-     * clock needs that, and the car's values arrive about as often.
+     * The readouts, each drawn in a [CHIP_WIDTH] x [CHIP_HEIGHT] box at its own
+     * place and scale. Repainted once a second: the clock needs that, and the
+     * car's values arrive about as often.
      */
     private class InfoView(context: Context) : View(context) {
 
-        private var items: List<NavAction> = emptyList()
-        private var layout = Layout.COLUMN
+        private var placements: List<Placement> = emptyList()
         private val icons = HashMap<Int, Drawable>()
 
         private val value = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -312,10 +325,9 @@ object ClusterInfoOverlay {
             }
         }
 
-        fun set(items: List<NavAction>, layout: Layout) {
-            if (this.items == items && this.layout == layout) return
-            this.items = items
-            this.layout = layout
+        fun set(placements: List<Placement>) {
+            if (this.placements == placements) return
+            this.placements = placements
             invalidate()
         }
 
@@ -330,20 +342,12 @@ object ClusterInfoOverlay {
         }
 
         override fun onDraw(canvas: Canvas) {
-            if (items.isEmpty() || width == 0) return
-            val n = items.size
-            val scale = when (layout) {
-                Layout.COLUMN -> width.toFloat() / CHIP_WIDTH
-                Layout.ROW -> width.toFloat() / (CHIP_WIDTH * n)
-            }
-            items.forEachIndexed { index, action ->
+            placements.forEach { p ->
                 canvas.save()
-                when (layout) {
-                    Layout.COLUMN -> canvas.translate(0f, index * CHIP_HEIGHT * scale)
-                    Layout.ROW -> canvas.translate(index * CHIP_WIDTH * scale, 0f)
-                }
+                canvas.translate(p.x.toFloat(), p.y.toFloat())
+                val scale = p.size / 100f
                 canvas.scale(scale, scale)
-                drawChip(canvas, action)
+                drawChip(canvas, p.action)
                 canvas.restore()
             }
         }

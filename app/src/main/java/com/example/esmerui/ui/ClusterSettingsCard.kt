@@ -26,17 +26,20 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,6 +51,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -60,6 +64,7 @@ import com.example.esmerui.cluster.ClusterProjection
 import com.example.esmerui.cluster.MirrorScaling
 import com.example.esmerui.launcher.AppEntry
 import com.example.esmerui.launcher.LauncherSettings
+import com.example.esmerui.launcher.NavAction
 import com.example.esmerui.launcher.findByKey
 import kotlin.math.roundToInt
 
@@ -88,10 +93,10 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
 
     // The frame being dragged in resize mode, in cluster pixels; null when not resizing.
     var draft by remember { mutableStateOf<Rect?>(null) }
-    // The readouts' frame while it is being moved, in cluster pixels; null otherwise.
-    var infoDraft by remember { mutableStateOf<Rect?>(null) }
+    // Whether the preview carries a frame per readout, to drag each into place.
+    var moving by remember { mutableStateOf(false) }
     val infoItems = ClusterInfoOverlay.items(settings)
-    val infoLayout = ClusterInfoOverlay.layout(settings)
+    val infoPlaces = ClusterInfoOverlay.placements(settings)
     val placement = ClusterPlacement.from(settings.clusterPlacement)
     val scaling = MirrorScaling.from(settings.clusterScaling)
 
@@ -187,7 +192,7 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
         ) {
             val viewW = constraints.maxWidth
             val viewH = constraints.maxHeight
-            ClusterPreview(Modifier.fillMaxSize(), touchable = draft == null && infoDraft == null)
+            ClusterPreview(Modifier.fillMaxSize(), touchable = draft == null && !moving)
             if (!ClusterProjection.mirrorLive) {
                 Text(
                     text = if (projecting) "Mirror starting…" else "The cluster shows here while projecting",
@@ -206,19 +211,24 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
                     onChange = { draft = it },
                 )
             }
-            infoDraft?.let { frame ->
-                // The frame's width sets the readouts' size; its height follows,
-                // and the overlay itself moves with every step.
-                ResizeFrame(
-                    frame = frame,
-                    scaling = scaling,
-                    viewWidth = viewW,
-                    viewHeight = viewH,
-                    keepAspect = false,
-                    constrain = { ClusterInfoOverlay.fit(it, infoItems.size, infoLayout) },
-                    onDrag = { ClusterInfoOverlay.preview(context, it) },
-                    onChange = { infoDraft = it },
-                )
+            if (moving) {
+                // One frame per readout; the overlay itself moves with every
+                // step, and the place is kept when the finger lifts.
+                infoPlaces.forEach { place ->
+                    key(place.action) {
+                        ResizeFrame(
+                            frame = place.rect,
+                            scaling = scaling,
+                            viewWidth = viewW,
+                            viewHeight = viewH,
+                            keepAspect = false,
+                            label = place.action.label,
+                            resizable = false,
+                            onDrag = { ClusterInfoOverlay.preview(context, place.action, it.left, it.top) },
+                            onChange = { ClusterInfoOverlay.place(context, place.action, it.left, it.top) },
+                        )
+                    }
+                }
             }
         }
 
@@ -266,7 +276,7 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
             FilterChip(
                 selected = draft != null || placement == ClusterPlacement.CUSTOM,
                 onClick = {
-                    infoDraft = null
+                    moving = false
                     if (draft == null) draft = Rect(ClusterProjection.currentBounds(context))
                 },
                 label = { Text(if (draft == null) "Resize" else "Resizing…") },
@@ -320,8 +330,8 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
                 )
                 Text(
                     text = "Drawn beside the cast app while projecting, with the car's own " +
-                        "icons untouched. Pick what to show, then Move to drag it on the " +
-                        "preview; the frame's width sets the size.",
+                        "icons untouched. Pick what to show, give each a size, and Move " +
+                        "to drag each one into place on the preview.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -346,59 +356,45 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
                     onClick = {
                         val next = if (picked) infoItems - action else infoItems + action
                         settings.clusterInfoItems = next.joinToString(",") { it.name }
-                        infoDraft?.let { infoDraft = ClusterInfoOverlay.fit(it, next.size, infoLayout) }
                         ClusterInfoOverlay.sync(context)
                     },
                     label = { Text(action.label) },
                 )
             }
         }
+        if (infoPlaces.isNotEmpty()) {
+            Spacer(Modifier.height(12.dp))
+            Text(
+                text = "Size of each, as a percentage; 100 is the bars' own.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            infoPlaces.forEach { place ->
+                key(place.action) {
+                    SizeRow(place.action, place.size) { ClusterInfoOverlay.resize(context, place.action, it) }
+                }
+            }
+        }
         Spacer(Modifier.height(12.dp))
         Row(
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ClusterInfoOverlay.Layout.entries.forEach { option ->
-                FilterChip(
-                    selected = infoLayout == option,
-                    onClick = {
-                        settings.clusterInfoLayout = option.name
-                        infoDraft?.let { infoDraft = ClusterInfoOverlay.fit(it, infoItems.size, option) }
-                        ClusterInfoOverlay.sync(context)
-                    },
-                    label = { Text(option.label) },
-                )
-            }
-            Spacer(Modifier.width(8.dp))
-            FilterChip(
-                selected = infoDraft != null,
+            Button(
                 onClick = {
                     draft = null
-                    if (infoDraft == null) infoDraft = ClusterInfoOverlay.rect(settings)
+                    moving = !moving
                 },
-                label = { Text(if (infoDraft == null) "Move" else "Moving…") },
-            )
-        }
-        if (infoDraft != null) {
-            Spacer(Modifier.height(12.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Button(onClick = {
-                    infoDraft?.let {
-                        settings.clusterInfoRect = "${it.left},${it.top},${it.right},${it.bottom}"
-                    }
-                    infoDraft = null
-                    ClusterInfoOverlay.sync(context)
-                }) { Text("Apply") }
-                OutlinedButton(onClick = {
-                    infoDraft = null
-                    ClusterInfoOverlay.sync(context)
-                }) { Text("Cancel") }
-                OutlinedButton(onClick = {
-                    val reset = ClusterInfoOverlay.defaultRect(settings)
-                    infoDraft = reset
-                    ClusterInfoOverlay.preview(context, reset)
-                }) { Text("Reset") }
+                enabled = infoPlaces.isNotEmpty(),
+            ) {
+                Text(if (moving) "Done moving" else "Move")
             }
+            OutlinedButton(onClick = { ClusterInfoOverlay.resetPlaces(context) }) { Text("Reset places") }
+            Text(
+                text = if (moving) "Drag each readout on the preview above." else "",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 
@@ -469,6 +465,48 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
             },
             onDismiss = { showPicker = false },
         )
+    }
+}
+
+/**
+ * A readout's size: typed as a number, or stepped by ten with the buttons
+ * beside it. Out-of-range or half-typed numbers are left alone until they
+ * make sense.
+ */
+@Composable
+private fun SizeRow(action: NavAction, size: Int, onSize: (Int) -> Unit) {
+    var text by remember(size) { mutableStateOf(size.toString()) }
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Text(
+            text = action.label,
+            style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.weight(1f),
+        )
+        OutlinedButton(onClick = { onSize((size - 10).coerceAtLeast(ClusterInfoOverlay.MIN_SIZE)) }) {
+            Text("−")
+        }
+        OutlinedTextField(
+            value = text,
+            onValueChange = { typed ->
+                val digits = typed.filter { it.isDigit() }.take(3)
+                text = digits
+                digits.toIntOrNull()
+                    ?.takeIf { it in ClusterInfoOverlay.MIN_SIZE..ClusterInfoOverlay.MAX_SIZE && it != size }
+                    ?.let(onSize)
+            },
+            singleLine = true,
+            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+            suffix = { Text("%") },
+            modifier = Modifier.width(110.dp),
+        )
+        OutlinedButton(onClick = { onSize((size + 10).coerceAtMost(ClusterInfoOverlay.MAX_SIZE)) }) {
+            Text("+")
+        }
     }
 }
 
@@ -543,6 +581,8 @@ private fun ResizeFrame(
     viewWidth: Int,
     viewHeight: Int,
     keepAspect: Boolean,
+    label: String? = null,
+    resizable: Boolean = true,
     constrain: (Rect) -> Rect = { it },
     onDrag: (Rect) -> Unit = {},
     onChange: (Rect) -> Unit,
@@ -625,17 +665,20 @@ private fun ResizeFrame(
     ) {
         val r = live.value
         Text(
-            text = "${r.width()} × ${r.height()} at ${r.left}, ${r.top}",
+            text = label ?: "${r.width()} × ${r.height()} at ${r.left}, ${r.top}",
             style = MaterialTheme.typography.labelMedium,
             color = Color.White,
-            modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
+            maxLines = 1,
+            modifier = Modifier.align(Alignment.TopStart).padding(4.dp),
         )
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomEnd)
-                .size(40.dp)
-                .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 12.dp))
-                .dragHandle(::resized),
-        )
+        if (resizable) {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.BottomEnd)
+                    .size(40.dp)
+                    .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 12.dp))
+                    .dragHandle(::resized),
+            )
+        }
     }
 }
