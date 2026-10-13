@@ -86,8 +86,9 @@ object ClusterInfoOverlay {
     var isShown by mutableStateOf(false)
         private set
 
-    /** Called on the main thread after every change to the overlay. */
+    /** Called on the main thread when the set of readouts to poll for changes. */
     private val listeners = CopyOnWriteArraySet<() -> Unit>()
+    private var announced: Set<NavAction> = emptySet()
     fun addListener(listener: () -> Unit) { listeners += listener }
     fun removeListener(listener: () -> Unit) { listeners -= listener }
 
@@ -95,6 +96,15 @@ object ClusterInfoOverlay {
     private var presentation: Presentation? = null
     private var view: InfoView? = null
     private var watching = false
+    private var app: Context? = null
+
+    /** A move not yet applied; a drag sends many a second and one per frame is plenty. */
+    private var pending: Rect? = null
+    private val flush = Runnable {
+        val rect = pending ?: return@Runnable
+        pending = null
+        app?.let { apply(it, rect) }
+    }
 
     // ── Settings ─────────────────────────────────────────────────────────────
 
@@ -158,14 +168,24 @@ object ClusterInfoOverlay {
 
     /** Brings the overlay in line with the settings: up, moved, refilled or down. */
     fun sync(context: Context) {
-        val app = context.applicationContext
+        val app = context.applicationContext.also { app = it }
+        main.removeCallbacks(flush)
+        pending = null
         main.post { apply(app, null) }
     }
 
     /** Moves it to [frame] without saving, so a drag on the preview shows live. */
     fun preview(context: Context, frame: Rect) {
-        val app = context.applicationContext
-        main.post { apply(app, frame) }
+        app = context.applicationContext
+        pending = Rect(frame)
+        main.removeCallbacks(flush)
+        main.post(flush)
+    }
+
+    private fun announce(wanted: Set<NavAction>) {
+        if (wanted == announced) return
+        announced = wanted
+        listeners.forEach { it() }
     }
 
     private fun apply(app: Context, override: Rect?) {
@@ -175,7 +195,7 @@ object ClusterInfoOverlay {
             ?.getDisplay(ClusterProjection.CLUSTER_DISPLAY_ID)
         if (!settings.clusterInfoEnabled || display == null) {
             dismiss()
-            listeners.forEach { it() }
+            announce(emptySet())
             return
         }
         val items = items(settings)
@@ -188,7 +208,7 @@ object ClusterInfoOverlay {
         }
         view?.set(items, layout)
         place(rect)
-        listeners.forEach { it() }
+        announce(items.toSet())
     }
 
     private fun show(app: Context, display: Display) {

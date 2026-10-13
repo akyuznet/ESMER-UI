@@ -43,9 +43,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
@@ -204,18 +207,17 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
                 )
             }
             infoDraft?.let { frame ->
-                // The frame's width sets the readouts' size; its height follows.
+                // The frame's width sets the readouts' size; its height follows,
+                // and the overlay itself moves with every step.
                 ResizeFrame(
                     frame = frame,
                     scaling = scaling,
                     viewWidth = viewW,
                     viewHeight = viewH,
                     keepAspect = false,
-                    onChange = {
-                        val fitted = ClusterInfoOverlay.fit(it, infoItems.size, infoLayout)
-                        infoDraft = fitted
-                        ClusterInfoOverlay.preview(context, fitted)
-                    },
+                    constrain = { ClusterInfoOverlay.fit(it, infoItems.size, infoLayout) },
+                    onDrag = { ClusterInfoOverlay.preview(context, it) },
+                    onChange = { infoDraft = it },
                 )
             }
         }
@@ -524,8 +526,15 @@ private fun ClusterPreview(modifier: Modifier = Modifier, touchable: Boolean) {
 }
 
 /**
- * The cast window's bounds drawn over the preview, movable by dragging inside
- * and resizable by its bottom-right corner, in cluster pixels throughout.
+ * A frame over the preview - the cast window's bounds, or the readouts' - movable
+ * by dragging inside and resizable by its bottom-right corner, in cluster pixels
+ * throughout.
+ *
+ * While a finger is on it the frame keeps its own position, read only by the
+ * layout, so each move shifts the box without recomposing the tab around it;
+ * [onDrag] hears every step for anything that should follow live, and the
+ * parent gets [onChange] once, when the finger lifts. [constrain] is applied to
+ * every step, for a frame whose height follows its content.
  */
 @Composable
 private fun ResizeFrame(
@@ -534,6 +543,8 @@ private fun ResizeFrame(
     viewWidth: Int,
     viewHeight: Int,
     keepAspect: Boolean,
+    constrain: (Rect) -> Rect = { it },
+    onDrag: (Rect) -> Unit = {},
     onChange: (Rect) -> Unit,
 ) {
     val (source, target) = remember(scaling, viewWidth, viewHeight) {
@@ -542,41 +553,79 @@ private fun ResizeFrame(
     // Preview pixels per cluster pixel, and back.
     val scaleX = target.width().toFloat() / source.width()
     val scaleY = target.height().toFloat() / source.height()
-    fun toView(x: Int, y: Int) = IntOffset(
-        (target.left + (x - source.left) * scaleX).roundToInt(),
-        (target.top + (y - source.top) * scaleY).roundToInt(),
-    )
     val minWidth = 320
     val minHeight = 180
+    val live = remember(frame) { mutableStateOf(Rect(frame)) }
 
-    val origin = toView(frame.left, frame.top)
-    val widthPx = (frame.width() * scaleX).roundToInt().coerceAtLeast(1)
-    val heightPx = (frame.height() * scaleY).roundToInt().coerceAtLeast(1)
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    fun moved(from: Rect, dx: Int, dy: Int): Rect {
+        val next = Rect(from).apply { offset(dx, dy) }
+        // Keep it on the cluster.
+        if (next.left < 0) next.offset(-next.left, 0)
+        if (next.top < 0) next.offset(0, -next.top)
+        if (next.right > ClusterGeometry.WIDTH) next.offset(ClusterGeometry.WIDTH - next.right, 0)
+        if (next.bottom > ClusterGeometry.HEIGHT) next.offset(0, ClusterGeometry.HEIGHT - next.bottom)
+        return next
+    }
+
+    fun resized(from: Rect, dx: Int, dy: Int): Rect {
+        var width = (from.width() + dx).coerceIn(minWidth, ClusterGeometry.WIDTH - from.left)
+        var height = (from.height() + dy).coerceIn(minHeight, ClusterGeometry.HEIGHT - from.top)
+        if (keepAspect) {
+            height = (width * ClusterGeometry.HEIGHT / ClusterGeometry.WIDTH)
+                .coerceIn(minHeight, ClusterGeometry.HEIGHT - from.top)
+            width = width.coerceAtMost(height * ClusterGeometry.WIDTH / ClusterGeometry.HEIGHT)
+        }
+        return Rect(from.left, from.top, from.left + width, from.top + height)
+    }
+
+    /** A drag from where the frame was when the finger landed, in cluster pixels. */
+    fun Modifier.dragHandle(step: (Rect, Int, Int) -> Rect): Modifier =
+        pointerInput(scaleX, scaleY, keepAspect, constrain) {
+            var anchor = Rect()
+            var total = Offset.Zero
+            detectDragGestures(
+                onDragStart = {
+                    anchor = Rect(live.value)
+                    total = Offset.Zero
+                },
+                onDragEnd = { onChange(live.value) },
+                onDragCancel = { onChange(live.value) },
+            ) { change, drag ->
+                change.consume()
+                total += drag
+                val next = constrain(
+                    step(anchor, (total.x / scaleX).roundToInt(), (total.y / scaleY).roundToInt()),
+                )
+                if (next != live.value) {
+                    live.value = next
+                    onDrag(next)
+                }
+            }
+        }
 
     Box(
         modifier = Modifier
-            .offset { origin }
-            .size(with(density) { widthPx.toDp() }, with(density) { heightPx.toDp() })
+            .offset {
+                val r = live.value
+                IntOffset(
+                    (target.left + (r.left - source.left) * scaleX).roundToInt(),
+                    (target.top + (r.top - source.top) * scaleY).roundToInt(),
+                )
+            }
+            .layout { measurable, _ ->
+                val r = live.value
+                val w = (r.width() * scaleX).roundToInt().coerceAtLeast(1)
+                val h = (r.height() * scaleY).roundToInt().coerceAtLeast(1)
+                val placeable = measurable.measure(Constraints.fixed(w, h))
+                layout(w, h) { placeable.place(0, 0) }
+            }
             .border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(6.dp))
             .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.18f), RoundedCornerShape(6.dp))
-            .pointerInput(frame, scaleX, scaleY) {
-                detectDragGestures { change, drag ->
-                    change.consume()
-                    val dx = (drag.x / scaleX).roundToInt()
-                    val dy = (drag.y / scaleY).roundToInt()
-                    val moved = Rect(frame).apply { offset(dx, dy) }
-                    // Keep it on the cluster.
-                    if (moved.left < 0) moved.offset(-moved.left, 0)
-                    if (moved.top < 0) moved.offset(0, -moved.top)
-                    if (moved.right > ClusterGeometry.WIDTH) moved.offset(ClusterGeometry.WIDTH - moved.right, 0)
-                    if (moved.bottom > ClusterGeometry.HEIGHT) moved.offset(0, ClusterGeometry.HEIGHT - moved.bottom)
-                    onChange(moved)
-                }
-            },
+            .dragHandle(::moved),
     ) {
+        val r = live.value
         Text(
-            text = "${frame.width()} × ${frame.height()} at ${frame.left}, ${frame.top}",
+            text = "${r.width()} × ${r.height()} at ${r.left}, ${r.top}",
             style = MaterialTheme.typography.labelMedium,
             color = Color.White,
             modifier = Modifier.align(Alignment.TopStart).padding(8.dp),
@@ -586,21 +635,7 @@ private fun ResizeFrame(
                 .align(Alignment.BottomEnd)
                 .size(40.dp)
                 .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 12.dp))
-                .pointerInput(frame, scaleX, scaleY, keepAspect) {
-                    detectDragGestures { change, drag ->
-                        change.consume()
-                        var width = frame.width() + (drag.x / scaleX).roundToInt()
-                        var height = frame.height() + (drag.y / scaleY).roundToInt()
-                        width = width.coerceIn(minWidth, ClusterGeometry.WIDTH - frame.left)
-                        height = height.coerceIn(minHeight, ClusterGeometry.HEIGHT - frame.top)
-                        if (keepAspect) {
-                            height = (width * ClusterGeometry.HEIGHT / ClusterGeometry.WIDTH)
-                                .coerceIn(minHeight, ClusterGeometry.HEIGHT - frame.top)
-                            width = width.coerceAtMost(height * ClusterGeometry.WIDTH / ClusterGeometry.HEIGHT)
-                        }
-                        onChange(Rect(frame.left, frame.top, frame.left + width, frame.top + height))
-                    }
-                },
+                .dragHandle(::resized),
         )
     }
 }
