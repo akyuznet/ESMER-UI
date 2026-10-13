@@ -123,9 +123,10 @@ internal fun HomeAssistantCard(settings: LauncherSettings) {
 
     SettingsCard(title = "Readouts from home") {
         Text(
-            text = "Six readouts, Home 1 to Home 6, each showing one entity's state. Put " +
-                "them on a bar, the home grid or the cluster like any other readout; the " +
-                "entity's name sits under its value.",
+            text = "Twenty readouts, Home 1 to Home 20, each showing one entity's state. Put " +
+                "them on a bar, the home grid or the cluster like any other readout. A " +
+                "name you give one is what the pickers call it and what sits under its " +
+                "value; with no name it is the value alone.",
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -174,6 +175,12 @@ internal fun HomeAssistantCard(settings: LauncherSettings) {
                     color = MaterialTheme.colorScheme.primary,
                 )
             }
+            if (entityId != null) {
+                NameField(
+                    name = HomeAssistant.parseNames(settings.homeAssistantNames)[slot].orEmpty(),
+                    onName = { HomeAssistant.setName(context, slot, it) },
+                )
+            }
         }
         Spacer(Modifier.height(8.dp))
         Row(
@@ -210,6 +217,25 @@ internal fun HomeAssistantCard(settings: LauncherSettings) {
             onDismiss = { pickingSlot = null },
         )
     }
+}
+
+/** The name shown for a Home readout, kept as typed and saved on every change. */
+@Composable
+private fun NameField(name: String, onName: (String) -> Unit) {
+    var text by remember(name) { mutableStateOf(name) }
+    OutlinedTextField(
+        value = text,
+        onValueChange = {
+            text = it
+            onName(it)
+        },
+        label = { Text("Name shown") },
+        placeholder = { Text("Leave empty for the value alone") },
+        singleLine = true,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 100.dp, end = 4.dp, bottom = 8.dp),
+    )
 }
 
 /**

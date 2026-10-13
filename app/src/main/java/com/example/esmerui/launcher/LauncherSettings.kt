@@ -125,6 +125,7 @@ class LauncherSettings private constructor(context: Context) {
     private var homeAssistantTokenState by mutableStateOf(prefs.getString(KEY_HA_TOKEN, null))
     private var homeAssistantIntervalState by mutableIntStateOf(prefs.getInt(KEY_HA_INTERVAL, DEFAULT_HA_INTERVAL))
     private var homeAssistantSlotsState by mutableStateOf(prefs.getString(KEY_HA_SLOTS, null))
+    private var homeAssistantNamesState by mutableStateOf(prefs.getString(KEY_HA_NAMES, null))
     private var windowWidthState by mutableIntStateOf(
         prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH).coerceIn(WINDOW_SIZE_RANGE)
     )
@@ -267,6 +268,19 @@ class LauncherSettings private constructor(context: Context) {
         set(value) {
             homeAssistantSlotsState = value
             prefs.edit().putString(KEY_HA_SLOTS, value).apply()
+        }
+
+    /**
+     * The user's names for the Home readouts, `slot:name` joined with `;`. They
+     * are what the pickers and the caption under the value show, so the enum is
+     * told whenever they change.
+     */
+    var homeAssistantNames: String?
+        get() = homeAssistantNamesState
+        set(value) {
+            homeAssistantNamesState = value
+            prefs.edit().putString(KEY_HA_NAMES, value).apply()
+            NavAction.homeNames = com.example.esmerui.home.HomeAssistant.parseNames(value)
         }
 
     /** Which windowing technique to use. */
@@ -529,6 +543,8 @@ class LauncherSettings private constructor(context: Context) {
         homeAssistantTokenState = prefs.getString(KEY_HA_TOKEN, null)
         homeAssistantIntervalState = prefs.getInt(KEY_HA_INTERVAL, DEFAULT_HA_INTERVAL)
         homeAssistantSlotsState = prefs.getString(KEY_HA_SLOTS, null)
+        homeAssistantNamesState = prefs.getString(KEY_HA_NAMES, null)
+        NavAction.homeNames = com.example.esmerui.home.HomeAssistant.parseNames(homeAssistantNamesState)
         windowWidthState = prefs.getInt(KEY_WINDOW_WIDTH, DEFAULT_WINDOW_WIDTH)
             .coerceIn(WINDOW_SIZE_RANGE)
         windowHeightState = prefs.getInt(KEY_WINDOW_HEIGHT, DEFAULT_WINDOW_HEIGHT)
@@ -584,6 +600,7 @@ class LauncherSettings private constructor(context: Context) {
         private const val KEY_HA_TOKEN = "home_assistant_token"
         private const val KEY_HA_INTERVAL = "home_assistant_interval"
         private const val KEY_HA_SLOTS = "home_assistant_slots"
+        private const val KEY_HA_NAMES = "home_assistant_names"
         private const val DEFAULT_HA_INTERVAL = 30
         private const val KEY_WINDOW_WIDTH = "window_width_pct"
         private const val KEY_WINDOW_HEIGHT = "window_height_pct"

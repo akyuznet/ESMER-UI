@@ -1984,8 +1984,11 @@ class NavBarService : Service() {
             NavAction.INFO_TEMP_OUT, NavAction.INFO_TYRES,
             NavAction.INFO_TYRES_PSI, NavAction.INFO_TYRES_KPA,
             NavAction.INFO_PM25, NavAction.INFO_SPEED, NavAction.INFO_SLOPE,
-            NavAction.INFO_HOME_1, NavAction.INFO_HOME_2, NavAction.INFO_HOME_3,
-            NavAction.INFO_HOME_4, NavAction.INFO_HOME_5, NavAction.INFO_HOME_6 -> Unit
+            NavAction.INFO_HOME_1, NavAction.INFO_HOME_2, NavAction.INFO_HOME_3, NavAction.INFO_HOME_4,
+            NavAction.INFO_HOME_5, NavAction.INFO_HOME_6, NavAction.INFO_HOME_7, NavAction.INFO_HOME_8,
+            NavAction.INFO_HOME_9, NavAction.INFO_HOME_10, NavAction.INFO_HOME_11, NavAction.INFO_HOME_12,
+            NavAction.INFO_HOME_13, NavAction.INFO_HOME_14, NavAction.INFO_HOME_15, NavAction.INFO_HOME_16,
+            NavAction.INFO_HOME_17, NavAction.INFO_HOME_18, NavAction.INFO_HOME_19, NavAction.INFO_HOME_20 -> Unit
             NavAction.SEAT_HEAT -> car { CarControl.cycleSeatHeat() }
             NavAction.SEAT_VENT -> car { CarControl.cycleSeatVent() }
             NavAction.SEAT_HEAT_PASSENGER -> car { CarControl.cycleSeatHeatPassenger() }

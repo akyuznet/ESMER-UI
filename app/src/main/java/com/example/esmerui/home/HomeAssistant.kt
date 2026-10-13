@@ -37,7 +37,7 @@ object HomeAssistant {
 
     private const val TAG = "HomeAssistant"
 
-    const val SLOTS = 6
+    const val SLOTS = 20
     const val DEFAULT_INTERVAL_S = 30
 
     /** Poll intervals offered, in seconds. */
@@ -133,14 +133,27 @@ object HomeAssistant {
         return values[slot]?.display ?: CarInfo.NO_VALUE
     }
 
-    /** The entity's name, kept short enough for a bar cell. */
-    fun captionFor(action: NavAction): String? {
-        val slot = action.homeSlot ?: return null
-        val name = values[slot]?.name
-            ?: app?.let { slotEntity(LauncherSettings.get(it), slot) }
-                ?.substringAfter('.')?.replace('_', ' ')
-            ?: return null
-        return if (name.length > 16) name.take(15) + "…" else name
+    /** The name the user gave the readout, under its value; nothing when there is none. */
+    fun captionFor(action: NavAction): String? = action.customLabel
+
+    /** `slot:name` joined with `;`. Names hold no `;` or `:`. */
+    fun parseNames(saved: String?): Map<Int, String> =
+        saved.orEmpty().split(';').mapNotNull { entry ->
+            val slot = entry.substringBefore(':').trim().toIntOrNull() ?: return@mapNotNull null
+            val name = entry.substringAfter(':', "").trim()
+            if (slot in 1..SLOTS && name.isNotEmpty()) slot to name else null
+        }.toMap()
+
+    /** Names a Home readout, or clears its name with blank. */
+    fun setName(context: Context, slot: Int, name: String?) {
+        val settings = LauncherSettings.get(context)
+        val names = parseNames(settings.homeAssistantNames).toMutableMap()
+        val clean = name?.replace(';', ' ')?.replace(':', ' ')?.trim().orEmpty()
+        if (clean.isEmpty()) names.remove(slot) else names[slot] = clean
+        settings.homeAssistantNames = names.entries
+            .sortedBy { it.key }
+            .joinToString(";") { "${it.key}:${it.value}" }
+            .ifEmpty { null }
     }
 
     fun isOn(action: NavAction): Boolean {

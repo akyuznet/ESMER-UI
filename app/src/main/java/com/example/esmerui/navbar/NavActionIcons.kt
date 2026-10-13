@@ -58,7 +58,8 @@ object NavActionIcons {
         // on the number.
         NavAction.INFO_CLOCK, NavAction.INFO_DATE, NavAction.INFO_CLOCK_DATE,
         NavAction.INFO_GEAR, NavAction.INFO_SPEED -> 0
-        else -> of(action)
+        // A Home readout is whatever the user named it; a house glyph says nothing.
+        else -> if (action.isHome) 0 else of(action)
     }
 
     /** Level 0 is the starting point; the bar swaps in the right one as it reads. */
@@ -139,6 +140,10 @@ object NavActionIcons {
         NavAction.INFO_TEMP_IN -> R.drawable.ic_info_temp
         NavAction.INFO_TEMP_OUT -> R.drawable.ic_info_temp
         NavAction.INFO_SLOPE -> R.drawable.ic_info_slope
-        NavAction.INFO_HOME_1, NavAction.INFO_HOME_2, NavAction.INFO_HOME_3, NavAction.INFO_HOME_4, NavAction.INFO_HOME_5, NavAction.INFO_HOME_6 -> R.drawable.ic_info_home
+        NavAction.INFO_HOME_1, NavAction.INFO_HOME_2, NavAction.INFO_HOME_3, NavAction.INFO_HOME_4,
+        NavAction.INFO_HOME_5, NavAction.INFO_HOME_6, NavAction.INFO_HOME_7, NavAction.INFO_HOME_8,
+        NavAction.INFO_HOME_9, NavAction.INFO_HOME_10, NavAction.INFO_HOME_11, NavAction.INFO_HOME_12,
+        NavAction.INFO_HOME_13, NavAction.INFO_HOME_14, NavAction.INFO_HOME_15, NavAction.INFO_HOME_16,
+        NavAction.INFO_HOME_17, NavAction.INFO_HOME_18, NavAction.INFO_HOME_19, NavAction.INFO_HOME_20 -> R.drawable.ic_info_home
     }
 }

@@ -51,7 +51,7 @@ enum class NavActionGroup(val label: String) {
  * hides those when the car does not expose them, rather than offering a dead button.
  */
 enum class NavAction(
-    val label: String,
+    private val baseLabel: String,
     val group: NavActionGroup,
     val needsCar: Boolean = false,
     /** Renders as a three-cell stepper with a live readout, not a single icon. */
@@ -183,11 +183,31 @@ enum class NavAction(
     INFO_HOME_4("Home 4", NavActionGroup.INFO, isReadout = true),
     INFO_HOME_5("Home 5", NavActionGroup.INFO, isReadout = true),
     INFO_HOME_6("Home 6", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_7("Home 7", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_8("Home 8", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_9("Home 9", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_10("Home 10", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_11("Home 11", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_12("Home 12", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_13("Home 13", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_14("Home 14", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_15("Home 15", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_16("Home 16", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_17("Home 17", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_18("Home 18", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_19("Home 19", NavActionGroup.INFO, isReadout = true),
+    INFO_HOME_20("Home 20", NavActionGroup.INFO, isReadout = true),
     ;
 
-    /** A Home Assistant readout, and which of the six it is. */
+    /** A Home Assistant readout, and which of the twenty it is. */
     val isHome: Boolean get() = name.startsWith("INFO_HOME_")
     val homeSlot: Int? get() = if (isHome) name.substringAfterLast('_').toIntOrNull() else null
+
+    /** The name the user gave a Home readout, if any; the settings keep [homeNames] current. */
+    val customLabel: String? get() = homeSlot?.let { homeNames[it] }?.takeIf { it.isNotBlank() }
+
+    /** What the pickers call this action: a Home readout's own name when it has one. */
+    val label: String get() = customLabel ?: baseLabel
 
     /** The head-up display controls, which share one poll gate and one colour rule. */
     val isHud: Boolean get() = group == NavActionGroup.HUD
@@ -237,5 +257,9 @@ enum class NavAction(
 
     companion object {
         fun from(name: String?): NavAction? = entries.firstOrNull { it.name == name }
+
+        /** Slot number to the user's name for that Home readout. */
+        @Volatile
+        var homeNames: Map<Int, String> = emptyMap()
     }
 }

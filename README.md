@@ -86,11 +86,12 @@ app being installed or running.
 
 The Home Assistant tab takes the server's URL and a long-lived access token (made in
 Home Assistant under your profile, Security), tests the connection, and lets you pick
-an entity for each of six "Home" readouts from a searchable list of everything the
-server has. Those readouts then go anywhere the other readouts go — a bar, the home
-grid, the cluster — showing the entity's state with its unit, or On and Off, under
-the entity's name. States are fetched over the REST API at the interval you choose,
-and only while a Home readout is on screen. Nothing is written to the server.
+an entity for each of twenty "Home" readouts from a searchable list of everything the
+server has, with a name of your own for each. Those readouts then go anywhere the
+other readouts go — a bar, the home grid, the cluster — showing the entity's state
+with its unit, or On and Off, with your name under it, or the value alone. States are
+fetched over the REST API at the interval you choose, and only while a Home readout
+is on screen. Nothing is written to the server.
 
 **Projection to the cluster**
 

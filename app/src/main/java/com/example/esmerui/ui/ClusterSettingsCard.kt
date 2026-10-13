@@ -62,6 +62,7 @@ import com.example.esmerui.cluster.ClusterMirrorWindow
 import com.example.esmerui.cluster.ClusterPlacement
 import com.example.esmerui.cluster.ClusterProjection
 import com.example.esmerui.cluster.MirrorScaling
+import com.example.esmerui.home.HomeAssistant
 import com.example.esmerui.launcher.AppEntry
 import com.example.esmerui.launcher.LauncherSettings
 import com.example.esmerui.launcher.NavAction
@@ -349,7 +350,11 @@ internal fun ClusterSettingsCard(settings: LauncherSettings, apps: List<AppEntry
             horizontalArrangement = Arrangement.spacedBy(8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            ClusterInfoOverlay.choices.forEach { action ->
+            // Twenty Home slots would swamp the row; only the ones with an entity.
+            val offered = ClusterInfoOverlay.choices.filter { action ->
+                !action.isHome || HomeAssistant.slotEntity(settings, action.homeSlot ?: 0) != null
+            }
+            offered.forEach { action ->
                 val picked = action in infoItems
                 FilterChip(
                     selected = picked,
